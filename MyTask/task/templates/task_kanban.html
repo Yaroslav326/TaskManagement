@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Kanban Board</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+</head>
+<body>
+
+<div class="board">
+    {% for task in tasks %}
+    <div class="column" id="task-{{ task.id }}">
+        <h3>{{ task.get_status_display }}</h3>
+        <div class="card" id="card-{{ task.id }}">
+            <strong>{{ task.title }}</strong>
+            <p>{{ task.remark|default:'' }}</p>
+            <button onclick="editTask({{ task.id }})">Edit</button>
+            <button onclick="deleteTask({{ task.id }})">Delete</button>
+            <select onchange="updateTaskStatus({{ task.id }}, this.value)">
+                <option value="todo" {% if task.status == 'todo' %}selected{% endif %}>Todo</option>
+                <option value="in_progress" {% if task.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                <option value="done" {% if task.status == 'done' %}selected{% endif %}>Done</option>
+            </select>
+        </div>
+
+        <!-- Подзадачи -->
+        {% for subtask in task.subtasks.all %}
+        <div class="card" id="subtask-{{ subtask.id }}">
+            <strong>{{ subtask.title }}</strong>
+            <p></p>
+            <button onclick="editSubtask({{ subtask.id }})">Edit</button>
+            <button onclick="deleteSubtask({{ subtask.id }})">Delete</button>
+            <label>
+                <input type="checkbox" {% if subtask.is_accomplished %}checked{% endif %} onchange="toggleSubtaskStatus({{ subtask.id }}, this.checked)">
+                Accomplished
+            </label>
+        </div>
+        {% endfor %}
+
+        <!-- Форма добавления подзадач -->
+        <div class="add-card">
+            <input type="text" id="subtask-input-{{ task.id }}" placeholder="New subtask..." />
+            <button onclick="addSubtask({{ task.id }})">Add Subtask</button>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Форма добавления новой задачи -->
+<div class="add-task">
+    <h3>Add New Task</h3>
+    <input type="text" id="task-title" placeholder="Task title..." />
+    <button onclick="addTask()">Add Task</button>
+</div>
+
+<script>
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    const csrftoken = getCookie('csrftoken');
+    console.log('CSRF Token:', csrftoken);
+
+    function addTask() {
+        const title = document.getElementById('task-title').value.trim();
+        if (!title) return;
+
+        fetch('/add-task/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrftoken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ title: title })
+        }).then(res => res.json())
+          .then(data => {
+              if (data.error) {
+                  alert(data.error);
+                  return;
+              }
+              const column = document.createElement('div');
+              column.className = 'column';
+              column.id = `task-${data.id}`;
+              column.innerHTML = `<h3>Todo</h3>${data.html}<div class="add-card"><input type="text" id="subtask-input-${data.id}" placeholder="New subtask..." /><button onclick="addSubtask(${data.id})">Add Subtask</button></div>`;
+              document.querySelector('.board').appendChild(column);
+              document.getElementById('task-title').value = '';
+          })
+          .catch(err => console.error(err));
+    }
+
+    function addSubtask(taskId) {
+        const input = document.getElementById(`subtask-input-${taskId}`);
+        const title = input.value.trim();
+        if (!title) return;
+
+        fetch('/add-subtask/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrftoken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ task_id: taskId, subtask_title: title })
+        }).then(res => res.json())
+          .then(data => {
+              if (data.error) {
+                  alert(data.error);
+                  return;
+              }
+              const column = document.getElementById(`task-${taskId}`);
+              const card = document.createElement('div');
+              card.innerHTML = data.html;
+              column.insertBefore(card, column.querySelector('.add-card'));
+              input.value = '';
+          })
+          .catch(err => console.error(err));
+    }
+
+    function updateTaskStatus(taskId, status) {
+        fetch('/update-task-status/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrftoken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ task_id: taskId, new_status: status })
+        }).then(res => res.json())
+          .then(data => {
+              if (data.error) {
+                  alert(data.error);
+                  return;
+              }
+
+              // Обновление интерфейса
+              const taskElement = document.getElementById(`card-${taskId}`);
+              const select = taskElement.querySelector('select');
+              select.innerHTML = `
+                  <option value="todo" ${data.status === 'todo' ? 'selected' : ''}>Todo</option>
+                  <option value="in_progress" ${data.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
+                  <option value="done" ${data.status === 'done' ? 'selected' : ''}>Done</option>
+              `;
+          })
+          .catch(err => console.error(err));
+    }
+
+    function deleteTask(taskId) {
+        if (confirm("Delete this task?")) {
+            fetch('/delete-task-ajax/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrftoken,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ task_id: taskId })
+            }).then(res => res.json())
+              .then(data => {
+                  if (data.error) {
+                      alert(data.error);
+                      return;
+                  }
+                  const taskElement = document.getElementById(`task-${taskId}`);
+                  if (taskElement) taskElement.remove();
+              })
+              .catch(err => console.error('Error:', err));
+        }
+    }
+
+    function deleteSubtask(subtaskId) {
+        if (confirm("Delete this subtask?")) {
+            fetch('/delete-subtask-ajax/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrftoken,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ subtask_id: subtaskId })
+            }).then(res => res.json())
+              .then(() => {
+                  const subtaskElement = document.getElementById(`subtask-${subtaskId}`);
+                  if (subtaskElement) subtaskElement.remove();
+              })
+              .catch(err => console.error(err));
+        }
+    }
+
+    function toggleSubtaskStatus(subtaskId, isCompleted) {
+        fetch('/toggle-subtask-ajax/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrftoken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                subtask_id: subtaskId,
+                is_completed: isCompleted.toString()
+            })
+        }).catch(err => console.error(err));
+    }
+
+    function editTask(taskId) {
+        const taskElement = document.getElementById(`card-${taskId}`);
+        if (!taskElement) return;
+
+        const strong = taskElement.querySelector('strong');
+        const p = taskElement.querySelector('p');
+
+        const title = strong ? strong.innerText : '';
+        const remark = p ? p.innerText : '';
+
+        const form = document.createElement('form');
+        form.innerHTML = `
+            <input type="text" value="${title}" id="edit-title-${taskId}" />
+            <textarea id="edit-remark-${taskId}">${remark}</textarea>
+            <button type="button" onclick="saveTask(${taskId})">Save</button>
+            <button type="button" onclick="cancelEdit()">Cancel</button>
+        `;
+
+        taskElement.innerHTML = '';
+        taskElement.appendChild(form);
+    }
+
+    function saveTask(taskId) {
+        const title = document.getElementById(`edit-title-${taskId}`).value.trim();
+        const remark = document.getElementById(`edit-remark-${taskId}`).value.trim();
+
+        if (!title) return alert("Title is required");
+
+        fetch('/edit-task-ajax/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrftoken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                task_id: taskId,
+                title: title,
+                remark: remark
+            })
+        }).then(res => res.json())
+          .then(data => {
+              if (data.error) {
+                  alert(data.error);
+                  return;
+              }
+
+              // Обновление интерфейса
+              const taskElement = document.getElementById(`card-${taskId}`);
+              taskElement.innerHTML = `
+                  <strong>${data.title}</strong>
+                  <p>${data.remark || ''}</p>
+                  <button onclick="deleteTask(${taskId})">Delete</button>
+                  <button onclick="editTask(${taskId})">Edit</button>
+                  <select onchange="updateTaskStatus(${taskId}, this.value)">
+                      <option value="todo" ${data.status === 'todo' ? 'selected' : ''}>Todo</option>
+                      <option value="in_progress" ${data.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
+                      <option value="done" ${data.status === 'done' ? 'selected' : ''}>Done</option>
+                  </select>
+              `;
+          })
+          .catch(err => console.error(err));
+    }
+
+    function cancelEdit() {
+        location.reload(); // Перезагрузка страницы
+    }
+
+    function editSubtask(subtaskId) {
+        const subtaskElement = document.getElementById(`subtask-${subtaskId}`);
+        if (!subtaskElement) return;
+
+        const title = subtaskElement.querySelector('strong').innerText;
+
+        const form = document.createElement('form');
+        form.innerHTML = `
+            <input type="text" value="${title}" id="edit-subtask-title-${subtaskId}" />
+            <button type="button" onclick="saveSubtask(${subtaskId})">Save</button>
+            <button type="button" onclick="cancelEdit()">Cancel</button>
+        `;
+
+        subtaskElement.innerHTML = '';
+        subtaskElement.appendChild(form);
+    }
+
+    function saveSubtask(subtaskId) {
+        const title = document.getElementById(`edit-subtask-title-${subtaskId}`).value.trim();
+
+        if (!title) return alert("Title is required");
+
+        fetch('/edit-subtask-ajax/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrftoken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                subtask_id: subtaskId,
+                title: title
+            })
+        }).then(res => res.json())
+          .then(data => {
+              if (data.error) {
+                  alert(data.error);
+                  return;
+              }
+
+              // Обновление интерфейса
+              const subtaskElement = document.getElementById(`subtask-${subtaskId}`);
+              subtaskElement.innerHTML = `
+                  <strong>${data.title}</strong>
+                  <p></p>
+                  <button onclick="editSubtask(${subtaskId})">Edit</button>
+                  <button onclick="deleteSubtask(${subtaskId})">Delete</button>
+                  <label>
+                      <input type="checkbox" ${data.is_accomplished ? 'checked' : ''} onchange="toggleSubtaskStatus(${subtaskId}, this.checked)">
+                      Accomplished
+                  </label>
+              `;
+          })
+          .catch(err => console.error(err));
+    }
+</script>
+
+</body>
+</html>
