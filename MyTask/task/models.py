@@ -12,13 +12,19 @@ class Task(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES,
                               default='todo')
     date_start = models.DateTimeField(auto_now_add=True)
-    date_end = models.DateTimeField(null=True)
+    date_end = models.DateTimeField(null=True, blank=True)
     employee = models.ForeignKey(settings.AUTH_USER_MODEL,
-                                 on_delete=models.CASCADE)
+                                 on_delete=models.CASCADE,
+                                 null=True, blank=True)
     remark = models.TextField(null=True)
 
     def __str__(self):
         return self.title
+
+    def take_task(self, user):
+        if not self.employee:
+            self.employee = user
+            self.save()
 
 
 class Subtask(models.Model):

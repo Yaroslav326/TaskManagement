@@ -4,7 +4,8 @@ import jwt
 from django.db import models
 from django.conf import settings
 from django.utils import timezone as dj_timezone
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.contrib.auth.models import (AbstractBaseUser, BaseUserManager,
+                                        PermissionsMixin)
 
 
 class UserManager(BaseUserManager):
@@ -25,7 +26,8 @@ class UserManager(BaseUserManager):
         if password is None:
             raise TypeError('Superusers must have a password.')
 
-        user = self.create_user(email=email, username=username, password=password)
+        user = self.create_user(email=email, username=username,
+                                password=password)
         user.is_superuser = True
         user.is_staff = True
         user.save(using=self._db)
@@ -33,7 +35,8 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    username = models.CharField(max_length=255, unique=True, null=True, blank=True)
+    username = models.CharField(max_length=255, unique=True, null=True,
+                                blank=True)
     email = models.EmailField(db_index=True, unique=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
@@ -61,8 +64,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     def _generate_jwt_token(self):
         expiry = dj_timezone.now() + timedelta(days=1)
         payload = {
-            'id': self.pk,
-            'exp': expiry.isoformat()
+            'user_id': self.pk,
+            'exp': int(expiry.timestamp())
         }
 
         token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')

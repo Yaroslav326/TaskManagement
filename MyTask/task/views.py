@@ -5,6 +5,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.db.models import Case, Value, IntegerField, When
 from .models import Task, Subtask
 from .forms import TaskForm, SubtaskForm
+from rest_framework import authentication, exceptions
+from django.conf import settings
+from authentication.models import User
+import jwt
 import json
 
 
@@ -87,8 +91,7 @@ def add_task(request):
     try:
         task = Task.objects.create(
             title=title,
-            status='todo',
-            employee=request.user
+            status='todo'
         )
         return JsonResponse({
             'id': task.id,
@@ -98,12 +101,16 @@ def add_task(request):
             <div class="card" id="card-{task.id}">
                 <strong>{task.title}</strong>
                 <p>{task.remark or ''}</p>
+                <p><small>Создано: {task.date_start.strftime('%Y-%m-%d %H:%M')}</small></p>
+                <p><small>Окончание: {task.date_end.strftime('%Y-%m-%d %H:%M') if task.date_end else '—'}</small></p>
+                <p><small>Исполнитель: {'Нет'}</small></p>
                 <button onclick="deleteTask({task.id})">Delete</button>
                 <select onchange="updateTaskStatus({task.id}, this.value)">
                     <option value="todo" selected>Todo</option>
                     <option value="in_progress">In Progress</option>
                     <option value="done">Done</option>
                 </select>
+                <button onclick="takeTask({task.id})">Взять задачу</button>
             </div>
             """
         })
@@ -115,7 +122,7 @@ def add_task(request):
 @require_http_methods(["POST"])
 def add_subtask(request):
     try:
-        data = json.loads(request.body)  # Получаем данные из тела запроса
+        data = json.loads(request.body)
         task_id = int(data.get('task_id'))
         subtask_title = data.get('subtask_title')
     except (ValueError, KeyError, json.JSONDecodeError):
@@ -127,7 +134,7 @@ def add_subtask(request):
                             status=400)
 
     try:
-        task_id = int(task_id)  # Попробуйте преобразовать в число
+        task_id = int(task_id)
     except ValueError:
         return JsonResponse({'error': 'Invalid task ID format'},
                             status=400)
@@ -180,7 +187,7 @@ def update_task_status(request):
 @require_http_methods(["POST"])
 def delete_task_ajax(request):
     try:
-        data = json.loads(request.body)  # Получаем данные из тела запроса
+        data = json.loads(request.body)
         task_id = int(data.get('task_id'))
     except (ValueError, KeyError, json.JSONDecodeError):
         return JsonResponse({'error': 'Invalid or missing task ID'},
@@ -215,9 +222,11 @@ def delete_subtask_ajax(request):
                 return JsonResponse({'success': True})
             except Subtask.DoesNotExist:
                 if not subtask_id:
-                    return JsonResponse({'error': 'Subtask not found'}, status=404)
+                    return JsonResponse({'error': 'Subtask not found'},
+                                        status=404)
                 else:
-                    return JsonResponse({'error': 'Subtask not found'}, status=404)
+                    return JsonResponse({'error': 'Subtask not found'},
+                                        status=404)
 
 
 @csrf_exempt
@@ -356,3 +365,32 @@ def update_subtask_status(request):
         return JsonResponse({'error': 'Subtask not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def take_task_ajax(request):
+    request.user = None
+    auth_header = authentication.get_authorization_header(request).split()
+
+    token = auth_header[1].decode('utf-8')
+    payload = jwt.decode(token, key=settings.SECRET_KEY,
+                         algorithms=['HS256'])
+
+    user = User.objects.get(id=payload['user_id'])
+
+    try:
+        data = json.loads(request.body)
+        task_id = int(data.get('task_id'))
+    except (ValueError, KeyError, json.JSONDecodeError):
+        return JsonResponse({'error': 'Invalid or missing data'}, status=400)
+
+    try:
+        task = Task.objects.get(id=task_id)
+        task.take_task(user)
+        return JsonResponse({
+            'success': True,
+            'username': user.username
+        })
+    except Task.DoesNotExist:
+        return JsonResponse({'error': 'Task not found'}, status=404)

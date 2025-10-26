@@ -1,4 +1,5 @@
 from django.urls import path
+from django.contrib.auth import views as auth_views
 from . import views
 
 urlpatterns = [
@@ -14,4 +15,6 @@ urlpatterns = [
     path('edit-task-ajax/', views.edit_task_ajax, name='edit_task_ajax'),
     path('update-subtask-status/', views.update_subtask_status, name='update_subtask_status'),
     path('edit-subtask-ajax/', views.edit_subtask_ajax, name='edit_subtask_ajax'),
+    path('logout/', auth_views.LogoutView.as_view(), name='logout'),
+    path('take-task-ajax/', views.take_task_ajax, name='take_task_ajax'),
 ]
