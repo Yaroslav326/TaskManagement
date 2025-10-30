@@ -1,0 +1,281 @@
+/* Общие стили */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f5f7fa;
+    color: #333;
+}
+
+/* Шапка */
+.main-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background-color: #ffffff;
+    border-bottom: 1px solid #e0e0e0;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.logo {
+    flex: 0 0 auto;
+}
+
+.user-controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-align: right;
+}
+
+.username {
+    font-weight: 500;
+    color: #2c3e50;
+    font-size: 14px;
+}
+
+/* Кнопки */
+.btn {
+    padding: 8px 14px;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.btn-primary {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.btn-secondary {
+    background-color: #2196F3;
+    color: white;
+}
+
+.btn-danger {
+    background-color: #f44336;
+    color: white;
+}
+
+.btn:hover {
+    opacity: 0.9;
+}
+
+/* Фильтры */
+.filters {
+    padding: 15px 20px;
+    background-color: #ffffff;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.filters form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 15px;
+}
+
+.filters label {
+    font-weight: 600;
+    font-size: 14px;
+    color: #555;
+    min-width: 80px;
+}
+
+.filters select,
+.filters input[type="date"] {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.filters button {
+    padding: 8px 16px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.filters button:hover {
+    background-color: #45a049;
+}
+
+/* Доска задач */
+.board {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding: 20px;
+    justify-content: flex-start;
+}
+
+/* Колонки (статусы) */
+.column {
+    background-color: #ffffff;
+    border-radius: 8px;
+    padding: 12px;
+    width: 300px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    min-height: 100px;
+}
+
+.column h3 {
+    text-align: center;
+    margin: 0 0 12px 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+/* Цвета заголовков по статусу */
+.column h3:nth-child(1) {
+    color: #4CAF50;
+}
+
+.column.status-in_progress h3 {
+    color: #FFA726;
+}
+
+.column.status-done h3 {
+    color: #29B6F6;
+}
+
+/* Карточки задач */
+.card {
+    background-color: #f8f9fa;
+    padding: 12px;
+    margin-bottom: 10px;
+    border-radius: 6px;
+    border-left: 4px solid #4CAF50;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: background-color 0.2s;
+}
+
+.card:hover {
+    background-color: #e9ecef;
+}
+
+.card strong {
+    font-size: 15px;
+    color: #2c3e50;
+}
+
+.card p {
+    margin: 6px 0;
+    font-size: 14px;
+    color: #555;
+}
+
+.card small {
+    color: #777;
+}
+
+/* Кнопки внутри карточек */
+.card button,
+.card select {
+    margin-top: 8px;
+    margin-right: 5px;
+    font-size: 12px;
+    padding: 4px 8px;
+}
+
+.card select {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: white;
+}
+
+/* Подзадачи */
+.card label {
+    display: flex;
+    align-items: center;
+    margin-top: 6px;
+    font-size: 13px;
+}
+
+.card label input[type="checkbox"] {
+    margin-right: 6px;
+}
+
+/* Форма добавления подзадачи */
+.add-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.add-card input {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.add-card button {
+    padding: 6px 12px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.add-card button:hover {
+    background-color: #45a049;
+}
+
+/* Форма добавления новой задачи */
+.add-task {
+    padding: 20px;
+    text-align: center;
+    background-color: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin: 20px;
+    max-width: 300px;
+    margin: 20px auto;
+}
+
+.add-task h3 {
+    margin-top: 0;
+    color: #2c3e50;
+    font-size: 1.4rem;
+}
+
+.add-task input {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.add-task button {
+    padding: 10px 20px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.add-task button:hover {
+    background-color: #45a049;
+}

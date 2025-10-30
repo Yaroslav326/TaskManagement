@@ -7,42 +7,12 @@
     <link rel="stylesheet" href="{% static 'css/styles.css' %}">
 </head>
 <body>
-<!-- Верхняя шапка -->
-<header class="main-header">
-    <div class="logo">
-        <a href="/account/" class="btn btn-secondary">Личный кабинет</a>
-    </div>
-    <div class="user-controls" id="auth-header">
-        <!-- Имя пользователя и кнопка Войти/Выйти будут загружены сюда -->
+<header style="text-align: right; margin-bottom: 20px;">
+    <div id="auth-header">
+        <!-- Содержимое будет загружено JavaScript -->
     </div>
 </header>
 
-<!-- Фильтры -->
-<div class="filters">
-    <form method="get">
-        <label for="status-filter">Статус:</label>
-        <select name="status" id="status-filter">
-            <option value="">Все</option>
-            {% for status in status_choices %}
-                <option value="{{ status.0 }}" {% if request.GET.status == status.0 %}selected{% endif %}>
-                    {{ status.1 }}
-                </option>
-            {% endfor %}
-        </select>
-
-        <label for="start-date">Дата начала:</label>
-        <input type="date" name="start_date" id="start-date" value="{{ request.GET.start_date }}">
-
-        <label for="end-date">Дата окончания:</label>
-        <input type="date" name="end_date" id="end-date" value="{{ request.GET.end_date }}">
-
-        <button type="submit">Применить</button>
-    </form>
-</div>
-
-<br>
-
-<!-- Доска задач -->
 <div class="board">
     {% for task in tasks %}
     <div class="column" id="task-{{ task.id }}">
@@ -52,7 +22,7 @@
             <p>{{ task.remark|default:'' }}</p>
             <p><small>Создано: {{ task.date_start }}</small></p>
             <p><small>Окончание: {{ task.date_end|default:"—" }}</small></p>
-            <p><small>Исполнитель: {{ task.employee.username|default:"Нет" }}</small></p>
+            <p><small>Исполнитель: {{ task.employee|default:"Нет" }}</small></p>
             <button onclick="editTask({{ task.id }})">Edit</button>
             <button onclick="deleteTask({{ task.id }})">Delete</button>
             <select onchange="updateTaskStatus({{ task.id }}, this.value)">
@@ -61,7 +31,7 @@
                 <option value="done" {% if task.status == 'done' %}selected{% endif %}>Done</option>
             </select>
             {% if not task.employee %}
-                <button onclick="takeTask({{ task.id }})">Взять задачу</button>
+            <button onclick="takeTask({{ task.id }})">Взять задачу</button>
             {% endif %}
         </div>
 
@@ -100,37 +70,38 @@
 <script>
     // Обновление шапки с авторизацией
     function updateAuthHeader() {
-        const token = localStorage.getItem('token');
-        const authHeader = document.getElementById('auth-header');
+    const token = localStorage.getItem('token');
+    console.log('Token:', token);
+    const authHeader = document.getElementById('auth-header');
 
-        if (token) {
-            authenticatedFetch('/api/users/update/', {
-                method: 'GET'
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.user && data.user.email) {
-                    authHeader.innerHTML = `
-                        <span class="username">Здравствуйте, ${data.user.username}!</span>
-                        <button onclick="logout()" class="btn btn-danger">Выйти</button>
-                    `;
-                } else {
-                    authHeader.innerHTML = `
-                        <a href="/api/login/" class="btn btn-primary">Войти</a>
-                    `;
-                }
-            })
-            .catch(() => {
+    if (token) {
+        authenticatedFetch('/api/users/update/', {
+            method: 'GET'
+        })
+        .then(res => {
+            console.log('Ответ от сервера:', res);
+            return res.json();
+        })
+        .then(data => {
+            console.log('Данные пользователя:', data);
+            if (data.user && data.user.email) {
                 authHeader.innerHTML = `
-                    <a href="/api/login/" class="btn btn-primary">Войти</a>
+                    <p>Здравствуйте, ${data.user.username}!</p>
+                    <button onclick="logout()">Выйти</button>
                 `;
-            });
-        } else {
-            authHeader.innerHTML = `
-                <a href="/api/login/" class="btn btn-primary">Войти</a>
-            `;
-        }
+            } else {
+                window.location.href = '/api/login/';
+            }
+        })
+        .catch(err => {
+            console.error('Ошибка получения данных пользователя:', err);
+            window.location.href = '/api/login/';
+        });
+    } else {
+        window.location.href = '/api/login/';
     }
+}
+
 
     function logout() {
         localStorage.removeItem('token');
