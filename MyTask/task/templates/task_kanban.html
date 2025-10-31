@@ -18,7 +18,7 @@
 </header>
 
 <!-- Фильтры -->
-<div class="filters">
+<div class="filters" id="filters-section" style="display: none;">
     <form method="get">
         <label for="status-filter">Статус:</label>
         <select name="status" id="status-filter">
@@ -36,7 +36,7 @@
         <label for="end-date">Дата окончания:</label>
         <input type="date" name="end_date" id="end-date" value="{{ request.GET.end_date }}">
 
-        <button type="submit">Применить</button>
+        <button type="button" onclick="applyFilters()">Применить</button>
     </form>
 </div>
 

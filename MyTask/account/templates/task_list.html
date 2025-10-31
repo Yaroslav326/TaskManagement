@@ -1,0 +1,41 @@
+{% for task in tasks %}
+<div class="column" id="task-{{ task.id }}">
+    <h3>{{ task.get_status_display }}</h3>
+    <div class="card" id="card-{{ task.id }}">
+        <strong>{{ task.title }}</strong>
+        <p>{{ task.remark|default:'' }}</p>
+        <p><small>Создано: {{ task.date_start }}</small></p>
+        <p><small>Окончание: {{ task.date_end|default:"—" }}</small></p>
+        <p><small>Исполнитель: {{ task.employee|default:"Вы" }}</small></p>
+        <button onclick="editTask({{ task.id }})">Редактировать</button>
+        <button onclick="deleteTask({{ task.id }})">Удалить</button>
+        <select onchange="updateTaskStatus({{ task.id }}, this.value)">
+            <option value="todo" {% if task.status == 'todo' %}selected{% endif %}>Todo</option>
+            <option value="in_progress" {% if task.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+            <option value="done" {% if task.status == 'done' %}selected{% endif %}>Done</option>
+        </select>
+    </div>
+
+    <!-- Подзадачи -->
+    {% for subtask in task.subtasks.all %}
+    <div class="card" id="subtask-{{ subtask.id }}">
+        <strong>{{ subtask.title }}</strong>
+        <p></p>
+        <button onclick="editSubtask({{ subtask.id }})">Edit</button>
+        <button onclick="deleteSubtask({{ subtask.id }})">Delete</button>
+        <label>
+            <input type="checkbox" {% if subtask.is_accomplished %}checked{% endif %} onchange="toggleSubtaskStatus({{ subtask.id }}, this.checked)">
+            Accomplished
+        </label>
+    </div>
+    {% endfor %}
+
+    <!-- Форма добавления подзадач -->
+    <div class="add-card">
+        <input type="text" id="subtask-input-{{ task.id }}" placeholder="New subtask..." />
+        <button onclick="addSubtask({{ task.id }})">Add Subtask</button>
+    </div>
+</div>
+{% empty %}
+<p>У вас пока нет задач.</p>
+{% endfor %}

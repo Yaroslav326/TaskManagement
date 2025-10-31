@@ -2,363 +2,211 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Kanban Board</title>
+    <title>Личный кабинет</title>
     {% load static %}
     <link rel="stylesheet" href="{% static 'css/styles.css' %}">
 </head>
 <body>
-<header style="text-align: right; margin-bottom: 20px;">
-    <div id="auth-header">
-        <!-- Содержимое будет загружено JavaScript -->
+<!-- Верхняя шапка с навигацией -->
+<header class="main-header">
+    <div class="nav-links">
+        <a href="/" class="btn btn-secondary">Главная страница</a>
+        <a href="#" onclick="showMyTasks(event)" class="btn btn-primary">Мои задачи</a>
+        <a href="#" onclick="showMyDepartment(event)" class="btn btn-secondary">Моё подразделение</a>
+    </div>
+    <div class="user-controls" id="auth-header">
+        <!-- Имя пользователя и кнопка Войти/Выйти -->
     </div>
 </header>
 
-<div class="board">
-    {% for task in tasks %}
-    <div class="column" id="task-{{ task.id }}">
-        <h3>{{ task.get_status_display }}</h3>
-        <div class="card" id="card-{{ task.id }}">
-            <strong>{{ task.title }}</strong>
-            <p>{{ task.remark|default:'' }}</p>
-            <p><small>Создано: {{ task.date_start }}</small></p>
-            <p><small>Окончание: {{ task.date_end|default:"—" }}</small></p>
-            <p><small>Исполнитель: {{ task.employee|default:"Нет" }}</small></p>
-            <button onclick="editTask({{ task.id }})">Edit</button>
-            <button onclick="deleteTask({{ task.id }})">Delete</button>
-            <select onchange="updateTaskStatus({{ task.id }}, this.value)">
-                <option value="todo" {% if task.status == 'todo' %}selected{% endif %}>Todo</option>
-                <option value="in_progress" {% if task.status == 'in_progress' %}selected{% endif %}>In Progress</option>
-                <option value="done" {% if task.status == 'done' %}selected{% endif %}>Done</option>
-            </select>
-            {% if not task.employee %}
-            <button onclick="takeTask({{ task.id }})">Взять задачу</button>
-            {% endif %}
-        </div>
+<!-- Фильтры (скрыты до нажатия "Мои задачи") -->
+<div class="filters" id="filters-section" style="display: none;">
+    <form method="get">
+        <label for="status-filter">Статус:</label>
+        <select name="status" id="status-filter">
+            <option value="">Все</option>
+            {% for status in status_choices %}
+                <option value="{{ status.0 }}" {% if request.GET.status == status.0 %}selected{% endif %}>
+                    {{ status.1 }}
+                </option>
+            {% endfor %}
+        </select>
 
-        <!-- Подзадачи -->
-        {% for subtask in task.subtasks.all %}
-        <div class="card" id="subtask-{{ subtask.id }}">
-            <strong>{{ subtask.title }}</strong>
-            <p></p>
-            <button onclick="editSubtask({{ subtask.id }})">Edit</button>
-            <button onclick="deleteSubtask({{ subtask.id }})">Delete</button>
-            <label>
-                <input type="checkbox" {% if subtask.is_accomplished %}checked{% endif %} onchange="toggleSubtaskStatus({{ subtask.id }}, this.checked)">
-                Accomplished
-            </label>
-        </div>
-        {% endfor %}
+        <label for="start-date">Дата начала:</label>
+        <input type="date" name="start_date" id="start-date" value="{{ request.GET.start_date }}">
 
-        <!-- Форма добавления подзадач -->
-        <div class="add-card">
-            <input type="text" id="subtask-input-{{ task.id }}" placeholder="New subtask..." />
-            <button onclick="addSubtask({{ task.id }})">Add Subtask</button>
-        </div>
-    </div>
-    {% endfor %}
+        <label for="end-date">Дата окончания:</label>
+        <input type="date" name="end_date" id="end-date" value="{{ request.GET.end_date }}">
+
+        <button type="button" onclick="applyFilters()">Применить</button>
+    </form>
 </div>
 
-<!-- Форма добавления новой задачи -->
-<div class="add-task">
-    <h3>Add New Task</h3>
-    <input type="text" id="task-title" placeholder="Task title..." />
-    <button onclick="addTask()">Add Task</button>
+<!-- Доска задач (изначально скрыта) -->
+<div class="board" id="tasks-board" style="display: none;">
+    <!-- Задачи будут загружены через JS -->
+</div>
+
+<!-- Сообщение, пока задачи не загружены -->
+<div id="welcome-message" style="text-align: center; margin-top: 100px; color: #777;">
+    <h2>Добро пожаловать!</h2>
+    <p>Нажмите <strong>"Мои задачи"</strong>, чтобы посмотреть свои задачи.</p>
+</div>
+
+<!-- Форма добавления новой задачи (тоже скрыта) -->
+<div class="add-task" id="add-task-section" style="display: none;">
+    <h3>Добавить задачу</h3>
+    <input type="text" id="task-title" placeholder="Название задачи..." />
+    <button onclick="addTask()">Добавить</button>
 </div>
 
 <script src="{% static 'js/utils.js' %}"></script>
 
 <script>
-    // Обновление шапки с авторизацией
-    function updateAuthHeader() {
-    const token = localStorage.getItem('token');
-    console.log('Token:', token);
-    const authHeader = document.getElementById('auth-header');
+    // === Управление отображением разделов ===
+    function showMyTasks(event) {
+        event.preventDefault();
+        document.getElementById('welcome-message').style.display = 'none';
+        document.getElementById('filters-section').style.display = 'block';
+        document.getElementById('tasks-board').style.display = 'flex';
+        document.getElementById('add-task-section').style.display = 'block';
+        loadMyTasks(); // Загружаем задачи
+    }
 
-    if (token) {
-        authenticatedFetch('/api/users/update/', {
-            method: 'GET'
+    function showMyDepartment(event) {
+        event.preventDefault();
+        alert("Функция 'Моё подразделение' пока в разработке.");
+    }
+
+    // === Загрузка задач пользователя через AJAX с фильтрами ===
+    function loadMyTasks(filters = {}) {
+        const board = document.getElementById('tasks-board');
+        board.innerHTML = '<p style="text-align: center; width: 100%;">Загрузка задач...</p>';
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+            board.innerHTML = '<p style="color: red;">Ошибка: токен не найден. Войдите снова.</p>';
+            return;
+        }
+
+        fetch('/account/my-tasks/', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify(filters)
         })
-        .then(res => {
-            console.log('Ответ от сервера:', res);
-            return res.json();
+        .then(response => {
+            if (response.status === 401) {
+                throw new Error('Неавторизован');
+            }
+            return response.json();
         })
         .then(data => {
-            console.log('Данные пользователя:', data);
-            if (data.user && data.user.email) {
-                authHeader.innerHTML = `
-                    <p>Здравствуйте, ${data.user.username}!</p>
-                    <button onclick="logout()">Выйти</button>
-                `;
-            } else {
-                window.location.href = '/api/login/';
+            if (data.html) {
+                board.innerHTML = data.html;
+            } else if (data.error) {
+                board.innerHTML = `<p style="color: red;">Ошибка: ${data.error}</p>`;
             }
         })
         .catch(err => {
-            console.error('Ошибка получения данных пользователя:', err);
-            window.location.href = '/api/login/';
+            board.innerHTML = `<p style="color: red;">${err.message || 'Неизвестная ошибка'}</p>`;
+            console.error('Ошибка загрузки задач:', err);
         });
-    } else {
-        window.location.href = '/api/login/';
     }
-}
 
+    // === Вспомогательная функция для получения CSRF-токена ===
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // === Применение фильтров ===
+    function applyFilters() {
+        const status = document.getElementById('status-filter').value;
+        const start_date = document.getElementById('start-date').value;
+        const end_date = document.getElementById('end-date').value;
+
+        const filters = {
+            status: status,
+            start_date: start_date,
+            end_date: end_date
+        };
+
+        loadMyTasks(filters); // Передаём фильтры
+    }
+
+    // === Добавление задачи ===
+    function addTask() {
+        const title = document.getElementById('task-title').value.trim();
+        if (!title) return alert('Введите название задачи');
+
+        authenticatedFetch('/add-task/', {
+            method: 'POST',
+            body: JSON.stringify({ title: title })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) return alert(data.error);
+            document.getElementById('task-title').value = '';
+            loadMyTasks(); // Обновить список
+        })
+        .catch(err => console.error(err));
+    }
+
+    // === Обновление шапки (авторизация) ===
+    function updateAuthHeader() {
+        const token = localStorage.getItem('token');
+        const authHeader = document.getElementById('auth-header');
+
+        if (token) {
+            authenticatedFetch('/api/users/update/', {
+                method: 'GET'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.user) {
+                    authHeader.innerHTML = `
+                        <span class="username">Здравствуйте, ${data.user.username}!</span>
+                        <button onclick="logout()" class="btn btn-danger">Выйти</button>
+                    `;
+                } else {
+                    showLogin(authHeader);
+                }
+            })
+            .catch(() => showLogin(authHeader));
+        } else {
+            showLogin(authHeader);
+        }
+    }
+
+    function showLogin(authHeader) {
+        authHeader.innerHTML = `
+            <a href="/api/login/" class="btn btn-primary">Войти</a>
+        `;
+    }
 
     function logout() {
         localStorage.removeItem('token');
         window.location.href = '/api/login/';
     }
 
-    // Вызов при загрузке страницы
+    // === Инициализация при загрузке страницы ===
     window.addEventListener('DOMContentLoaded', function () {
         updateAuthHeader();
     });
-
-    // Добавление новой задачи
-    function addTask() {
-        const title = document.getElementById('task-title').value.trim();
-        if (!title) return;
-
-        authenticatedFetch('/add-task/', {
-            method: 'POST',
-            body: JSON.stringify({ title: title })
-        }).then(res => res.json())
-          .then(data => {
-              if (data.error) {
-                  alert(data.error);
-                  return;
-              }
-              const column = document.createElement('div');
-              column.className = 'column';
-              column.id = `task-${data.id}`;
-              column.innerHTML = `<h3>Todo</h3>${data.html}<div class="add-card"><input type="text" id="subtask-input-${data.id}" placeholder="New subtask..." /><button onclick="addSubtask(${data.id})">Add Subtask</button></div>`;
-              document.querySelector('.board').appendChild(column);
-              document.getElementById('task-title').value = '';
-          })
-          .catch(err => console.error(err));
-    }
-
-    function addSubtask(taskId) {
-        const input = document.getElementById(`subtask-input-${taskId}`);
-        const title = input.value.trim();
-        if (!title) return;
-
-        authenticatedFetch('/add-subtask/', {
-            method: 'POST',
-            body: JSON.stringify({ task_id: taskId, subtask_title: title })
-        }).then(res => res.json())
-          .then(data => {
-              if (data.error) {
-                  alert(data.error);
-                  return;
-              }
-              const column = document.getElementById(`task-${taskId}`);
-              const card = document.createElement('div');
-              card.innerHTML = data.html;
-              column.insertBefore(card, column.querySelector('.add-card'));
-              input.value = '';
-          })
-          .catch(err => console.error(err));
-    }
-
-    function updateTaskStatus(taskId, status) {
-        authenticatedFetch('/update-task-status/', {
-            method: 'POST',
-            body: JSON.stringify({ task_id: taskId, new_status: status })
-        }).then(res => res.json())
-          .then(data => {
-              if (data.error) {
-                  alert(data.error);
-                  return;
-              }
-
-              const taskElement = document.getElementById(`card-${taskId}`);
-              const select = taskElement.querySelector('select');
-              select.innerHTML = `
-                  <option value="todo" ${data.status === 'todo' ? 'selected' : ''}>Todo</option>
-                  <option value="in_progress" ${data.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
-                  <option value="done" ${data.status === 'done' ? 'selected' : ''}>Done</option>
-              `;
-          })
-          .catch(err => console.error(err));
-    }
-
-    function deleteTask(taskId) {
-        if (confirm("Delete this task?")) {
-            authenticatedFetch('/delete-task-ajax/', {
-                method: 'POST',
-                body: JSON.stringify({ task_id: taskId })
-            }).then(res => res.json())
-              .then(data => {
-                  if (data.error) {
-                      alert(data.error);
-                      return;
-                  }
-                  const taskElement = document.getElementById(`task-${taskId}`);
-                  if (taskElement) taskElement.remove();
-              })
-              .catch(err => console.error('Error:', err));
-        }
-    }
-
-    function deleteSubtask(subtaskId) {
-        if (confirm("Delete this subtask?")) {
-            authenticatedFetch('/delete-subtask-ajax/', {
-                method: 'POST',
-                body: JSON.stringify({ subtask_id: subtaskId })
-            }).then(res => res.json())
-              .then(() => {
-                  const subtaskElement = document.getElementById(`subtask-${subtaskId}`);
-                  if (subtaskElement) subtaskElement.remove();
-              })
-              .catch(err => console.error(err));
-        }
-    }
-
-    function toggleSubtaskStatus(subtaskId, isCompleted) {
-        authenticatedFetch('/toggle-subtask-ajax/', {
-            method: 'POST',
-            body: JSON.stringify({
-                subtask_id: subtaskId,
-                is_completed: isCompleted.toString()
-            })
-        }).catch(err => console.error(err));
-    }
-
-    function editTask(taskId) {
-        const taskElement = document.getElementById(`card-${taskId}`);
-        if (!taskElement) return;
-
-        const strong = taskElement.querySelector('strong');
-        const p = taskElement.querySelector('p');
-
-        const title = strong ? strong.innerText : '';
-        const remark = p ? p.innerText : '';
-
-        const form = document.createElement('form');
-        form.innerHTML = `
-            <input type="text" value="${title}" id="edit-title-${taskId}" />
-            <textarea id="edit-remark-${taskId}">${remark}</textarea>
-            <button type="button" onclick="saveTask(${taskId})">Save</button>
-            <button type="button" onclick="cancelEdit()">Cancel</button>
-        `;
-
-        taskElement.innerHTML = '';
-        taskElement.appendChild(form);
-    }
-
-    function saveTask(taskId) {
-        const title = document.getElementById(`edit-title-${taskId}`).value.trim();
-        const remark = document.getElementById(`edit-remark-${taskId}`).value.trim();
-
-        if (!title) return alert("Title is required");
-
-        authenticatedFetch('/edit-task-ajax/', {
-            method: 'POST',
-            body: JSON.stringify({
-                task_id: taskId,
-                title: title,
-                remark: remark
-            })
-        }).then(res => res.json())
-          .then(data => {
-              if (data.error) {
-                  alert(data.error);
-                  return;
-              }
-
-              const taskElement = document.getElementById(`card-${taskId}`);
-              taskElement.innerHTML = `
-                  <strong>${data.title}</strong>
-                  <p>${data.remark || ''}</p>
-                  <p><small>Создано: ${data.date_start}</small></p>
-                  <p><small>Окончание: ${data.date_end || "—"}</small></p>
-                  <p><small>Исполнитель: ${data.employee || "Нет"}</small></p>
-                  <button onclick="deleteTask(${taskId})">Delete</button>
-                  <button onclick="editTask(${taskId})">Edit</button>
-                  <select onchange="updateTaskStatus(${taskId}, this.value)">
-                      <option value="todo" ${data.status === 'todo' ? 'selected' : ''}>Todo</option>
-                      <option value="in_progress" ${data.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
-                      <option value="done" ${data.status === 'done' ? 'selected' : ''}>Done</option>
-                  </select>
-                  ${data.employee ? '' : `<button onclick="takeTask(${taskId})">Взять задачу</button>`}
-              `;
-          })
-          .catch(err => console.error(err));
-    }
-
-    function cancelEdit() {
-        location.reload(); // Перезагрузка страницы
-    }
-
-    function editSubtask(subtaskId) {
-        const subtaskElement = document.getElementById(`subtask-${subtaskId}`);
-        if (!subtaskElement) return;
-
-        const title = subtaskElement.querySelector('strong').innerText;
-
-        const form = document.createElement('form');
-        form.innerHTML = `
-            <input type="text" value="${title}" id="edit-subtask-title-${subtaskId}" />
-            <button type="button" onclick="saveSubtask(${subtaskId})">Save</button>
-            <button type="button" onclick="cancelEdit()">Cancel</button>
-        `;
-
-        subtaskElement.innerHTML = '';
-        subtaskElement.appendChild(form);
-    }
-
-    function saveSubtask(subtaskId) {
-        const title = document.getElementById(`edit-subtask-title-${subtaskId}`).value.trim();
-
-        if (!title) return alert("Title is required");
-
-        authenticatedFetch('/edit-subtask-ajax/', {
-            method: 'POST',
-            body: JSON.stringify({
-                subtask_id: subtaskId,
-                title: title
-            })
-        }).then(res => res.json())
-          .then(data => {
-              if (data.error) {
-                  alert(data.error);
-                  return;
-              }
-
-              const subtaskElement = document.getElementById(`subtask-${subtaskId}`);
-              subtaskElement.innerHTML = `
-                  <strong>${data.title}</strong>
-                  <p></p>
-                  <button onclick="editSubtask(${subtaskId})">Edit</button>
-                  <button onclick="deleteSubtask(${subtaskId})">Delete</button>
-                  <label>
-                      <input type="checkbox" ${data.is_accomplished ? 'checked' : ''} onchange="toggleSubtaskStatus(${subtaskId}, this.checked)">
-                      Accomplished
-                  </label>
-              `;
-          })
-          .catch(err => console.error(err));
-    }
-
-    function takeTask(taskId) {
-        authenticatedFetch('/take-task-ajax/', {
-            method: 'POST',
-            body: JSON.stringify({ task_id: taskId })
-        }).then(res => res.json())
-          .then(data => {
-              if (data.success) {
-                  const card = document.getElementById(`card-${taskId}`);
-                  if (card) {
-                      card.innerHTML += `<p><small>Исполнитель: ${data.username}</small></p>`;
-                      const takeBtn = card.querySelector('button[onclick*="takeTask"]');
-                      if (takeBtn) takeBtn.remove();
-                  }
-              } else {
-                  alert(data.error);
-              }
-          })
-          .catch(err => console.error(err));
-    }
 </script>
 
 </body>
