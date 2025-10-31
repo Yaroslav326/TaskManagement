@@ -6,7 +6,7 @@
         <p>{{ task.remark|default:'' }}</p>
         <p><small>Создано: {{ task.date_start }}</small></p>
         <p><small>Окончание: {{ task.date_end|default:"—" }}</small></p>
-        <p><small>Исполнитель: {{ task.employee|default:"Вы" }}</small></p>
+        <p><small>Исполнитель: {{ task.employee.username|default:"Вы" }}</small></p>
         <button onclick="editTask({{ task.id }})">Редактировать</button>
         <button onclick="deleteTask({{ task.id }})">Удалить</button>
         <select onchange="updateTaskStatus({{ task.id }}, this.value)">

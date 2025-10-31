@@ -13,6 +13,7 @@
         <a href="/" class="btn btn-secondary">Главная страница</a>
         <a href="#" onclick="showMyTasks(event)" class="btn btn-primary">Мои задачи</a>
         <a href="#" onclick="showMyDepartment(event)" class="btn btn-secondary">Моё подразделение</a>
+        <a href="#" onclick="openProfileModal(event)" class="btn btn-secondary">Редактировать профиль</a>
     </div>
     <div class="user-controls" id="auth-header">
         <!-- Имя пользователя и кнопка Войти/Выйти -->
@@ -60,6 +61,28 @@
     <button onclick="addTask()">Добавить</button>
 </div>
 
+<!-- Модальное окно для редактирования профиля -->
+<div id="profile-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Редактировать профиль</h3>
+        <form id="profile-form">
+            <label>Имя пользователя:</label>
+            <input type="text" id="modal-username" required />
+
+            <label>Email:</label>
+            <input type="email" id="modal-email" required />
+
+            <label>Новый пароль (оставьте пустым, если не меняете):</label>
+            <input type="password" id="modal-password" />
+
+            <div class="modal-buttons">
+                <button type="submit">Сохранить</button>
+                <button type="button" onclick="closeModal()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script src="{% static 'js/utils.js' %}"></script>
 
 <script>
@@ -70,7 +93,7 @@
         document.getElementById('filters-section').style.display = 'block';
         document.getElementById('tasks-board').style.display = 'flex';
         document.getElementById('add-task-section').style.display = 'block';
-        loadMyTasks(); // Загружаем задачи
+        loadMyTasks();
     }
 
     function showMyDepartment(event) {
@@ -78,14 +101,14 @@
         alert("Функция 'Моё подразделение' пока в разработке.");
     }
 
-    // === Загрузка задач пользователя через AJAX с фильтрами ===
+    // === Загрузка задач с фильтрами ===
     function loadMyTasks(filters = {}) {
         const board = document.getElementById('tasks-board');
-        board.innerHTML = '<p style="text-align: center; width: 100%;">Загрузка задач...</p>';
+        board.innerHTML = '<p style="text-align: center;">Загрузка задач...</p>';
 
         const token = localStorage.getItem('token');
         if (!token) {
-            board.innerHTML = '<p style="color: red;">Ошибка: токен не найден. Войдите снова.</p>';
+            board.innerHTML = '<p style="color: red;">Ошибка: токен не найден.</p>';
             return;
         }
 
@@ -99,9 +122,7 @@
             body: JSON.stringify(filters)
         })
         .then(response => {
-            if (response.status === 401) {
-                throw new Error('Неавторизован');
-            }
+            if (response.status === 401) throw new Error('Неавторизован');
             return response.json();
         })
         .then(data => {
@@ -112,12 +133,12 @@
             }
         })
         .catch(err => {
-            board.innerHTML = `<p style="color: red;">${err.message || 'Неизвестная ошибка'}</p>`;
-            console.error('Ошибка загрузки задач:', err);
+            board.innerHTML = `<p style="color: red;">${err.message}</p>`;
+            console.error('Ошибка:', err);
         });
     }
 
-    // === Вспомогательная функция для получения CSRF-токена ===
+    // === Получение CSRF-токена ===
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
@@ -139,13 +160,8 @@
         const start_date = document.getElementById('start-date').value;
         const end_date = document.getElementById('end-date').value;
 
-        const filters = {
-            status: status,
-            start_date: start_date,
-            end_date: end_date
-        };
-
-        loadMyTasks(filters); // Передаём фильтры
+        const filters = { status, start_date, end_date };
+        loadMyTasks(filters);
     }
 
     // === Добавление задачи ===
@@ -155,13 +171,13 @@
 
         authenticatedFetch('/add-task/', {
             method: 'POST',
-            body: JSON.stringify({ title: title })
+            body: JSON.stringify({ title })
         })
         .then(res => res.json())
         .then(data => {
             if (data.error) return alert(data.error);
             document.getElementById('task-title').value = '';
-            loadMyTasks(); // Обновить список
+            loadMyTasks();
         })
         .catch(err => console.error(err));
     }
@@ -172,21 +188,19 @@
         const authHeader = document.getElementById('auth-header');
 
         if (token) {
-            authenticatedFetch('/api/users/update/', {
-                method: 'GET'
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.user) {
-                    authHeader.innerHTML = `
-                        <span class="username">Здравствуйте, ${data.user.username}!</span>
-                        <button onclick="logout()" class="btn btn-danger">Выйти</button>
-                    `;
-                } else {
-                    showLogin(authHeader);
-                }
-            })
-            .catch(() => showLogin(authHeader));
+            authenticatedFetch('/api/users/update/', { method: 'GET' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.user) {
+                        authHeader.innerHTML = `
+                            <span class="username">Здравствуйте, ${data.user.username}!</span>
+                            <button onclick="logout()" class="btn btn-danger">Выйти</button>
+                        `;
+                    } else {
+                        showLogin(authHeader);
+                    }
+                })
+                .catch(() => showLogin(authHeader));
         } else {
             showLogin(authHeader);
         }
@@ -203,9 +217,74 @@
         window.location.href = '/api/login/';
     }
 
+    // === Открытие модального окна ===
+    function openProfileModal(event) {
+        event.preventDefault();
+        authenticatedFetch('/api/users/update/', { method: 'GET' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.user) {
+                    document.getElementById('modal-username').value = data.user.username || '';
+                    document.getElementById('modal-email').value = data.user.email || '';
+                    document.getElementById('modal-password').value = '';
+                }
+            })
+            .catch(err => {
+                alert('Ошибка загрузки данных.');
+                console.error(err);
+            });
+
+        document.getElementById('profile-modal').style.display = 'flex';
+    }
+
+    // === Закрытие модального окна ===
+    function closeModal() {
+        document.getElementById('profile-modal').style.display = 'none';
+    }
+
     // === Инициализация при загрузке страницы ===
     window.addEventListener('DOMContentLoaded', function () {
         updateAuthHeader();
+
+        // === Привязка события к форме (после загрузки DOM) ===
+        const profileForm = document.getElementById('profile-form');
+        if (profileForm) {
+            profileForm.onsubmit = function (e) {
+                e.preventDefault();
+
+                const username = document.getElementById('modal-username').value.trim();
+                const email = document.getElementById('modal-email').value.trim();
+                const password = document.getElementById('modal-password').value;
+
+                if (!username) return alert('Введите имя пользователя');
+                if (!email) return alert('Введите email');
+
+                const token = localStorage.getItem('token');
+                if (!token) return alert('Требуется авторизация.');
+
+                authenticatedFetch('/account/update-account/', {
+                    method: 'POST',
+                    body: JSON.stringify({ username, email, password })
+                })
+                .then(res => {
+                    if (!res.ok) throw new Error('Ошибка сервера');
+                    return res.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        alert('Профиль успешно обновлён!');
+                        closeModal();
+                        updateAuthHeader();
+                    } else if (data.error) {
+                        alert('Ошибка: ' + data.error);
+                    }
+                })
+                .catch(err => {
+                    alert('Ошибка: ' + (err.message || 'Сеть'));
+                    console.error(err);
+                });
+            };
+        }
     });
 </script>
 
