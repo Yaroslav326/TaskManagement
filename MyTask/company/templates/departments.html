@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Личный кабинет</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+</head>
+<body>
+<!-- Верхняя шапка с навигацией -->
+<header class="main-header">
+    <div class="nav-links">
+        <a href="/" class="btn btn-secondary">Главная</a>
+        <a href="#" onclick="showMyTasks(event)" class="btn btn-primary">Мои задачи</a>
+        <a href="#" onclick="showDepartments(event)" class="btn btn-secondary">Отделы</a>
+        <a href="/company/profile/" onclick="showCompanyProfile(event)" class="btn btn-secondary">Профиль компании</a>
+    </div>
+    <div class="user-controls" id="auth-header">
+        <!-- Имя пользователя и кнопка Войти/Выйти -->
+    </div>
+</header>
+
+<!-- Сообщение приветствия -->
+<div id="welcome-message" style="text-align: center; margin-top: 100px; color: #777;">
+    <h2>Добро пожаловать!</h2>
+    <p>Нажмите <strong>"Мои задачи"</strong> или <strong>"Отделы"</strong>, чтобы начать.</p>
+</div>
+
+<!-- Блок: Мои задачи (скрыт по умолчанию) -->
+<div class="filters" id="filters-section" style="display: none;">
+    <form method="get">
+        <label for="status-filter">Статус:</label>
+        <select name="status" id="status-filter">
+            <option value="">Все</option>
+            {% for status in status_choices %}
+                <option value="{{ status.0 }}" {% if request.GET.status == status.0 %}selected{% endif %}>
+                    {{ status.1 }}
+                </option>
+            {% endfor %}
+        </select>
+
+        <label for="start-date">Дата начала:</label>
+        <input type="date" name="start_date" id="start-date" value="{{ request.GET.start_date }}">
+
+        <label for="end-date">Дата окончания:</label>
+        <input type="date" name="end_date" id="end-date" value="{{ request.GET.end_date }}">
+
+        <button type="button" onclick="applyFilters()">Применить</button>
+    </form>
+</div>
+
+<div class="board" id="tasks-board" style="display: none;"></div>
+
+<div class="add-task" id="add-task-section" style="display: none;">
+    <h3>Добавить задачу</h3>
+    <input type="text" id="task-title" placeholder="Название задачи..." />
+    <button onclick="addTask()">Добавить</button>
+</div>
+
+<!-- Блок: Отделы -->
+<div id="departments-section" style="display: none; padding: 20px;">
+    <h2>Мои отделы</h2>
+    <div id="departments-list">
+        <p>Загрузка отделов...</p>
+    </div>
+
+    <div id="create-company-prompt" style="display: none; margin-top: 20px; color: #d9534f;">
+        <p>Вы не состоите ни в одной компании.</p>
+        <button onclick="createCompany()" class="btn btn-primary">Создать компанию</button>
+    </div>
+
+    <button id="add-department-btn" onclick="openCreateDepartmentModal()" class="btn btn-success" style="display: none; margin-top: 20px;">
+        Добавить отдел
+    </button>
+</div>
+
+<!-- Модальное окно: Создание отдела -->
+<div id="create-department-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Создать новый отдел</h3>
+        <form id="create-department-form">
+            <label>Название отдела:</label>
+            <input type="text" id="department-name" required />
+
+            <div class="modal-buttons">
+                <button type="submit">Создать</button>
+                <button type="button" onclick="closeCreateDepartmentModal()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно: Редактирование отдела -->
+<div id="edit-department-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Редактировать отдел</h3>
+        <form id="edit-department-form">
+            <input type="hidden" id="edit-department-id" />
+            <label>Название:</label>
+            <input type="text" id="edit-department-name" required />
+
+            <div class="modal-buttons">
+                <button type="submit">Сохранить</button>
+                <button type="button" onclick="closeEditDepartmentModal()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно: Редактирование профиля (остаётся без изменений) -->
+<div id="profile-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Редактировать профиль</h3>
+        <form id="profile-form">
+            <label>Имя пользователя:</label>
+            <input type="text" id="modal-username" required />
+
+            <label>Email:</label>
+            <input type="email" id="modal-email" required />
+
+            <label>Новый пароль (оставьте пустым, если не меняете):</label>
+            <input type="password" id="modal-password" />
+
+            <div class="modal-buttons">
+                <button type="submit">Сохранить</button>
+                <button type="button" onclick="closeModal()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="{% static 'js/utils.js' %}"></script>
+
+<script>
+    // === Глобальные переменные ===
+    let currentUser = null;
+    let userDepartments = [];
+    let userCompany = null;
+
+    // === Загрузка данных пользователя ===
+    function loadUserData() {
+        return authenticatedFetch('/api/users/update/', { method: 'GET' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.user) {
+                    currentUser = data.user;
+                    updateAuthHeader();
+                    loadUserDepartments();
+                } else {
+                    showLogin();
+                }
+            })
+            .catch(err => {
+                console.error('Ошибка загрузки пользователя:', err);
+                showLogin();
+            });
+    }
+
+    // === Показать "Отделы" ===
+    function showDepartments(event) {
+        event.preventDefault();
+        hideAllSections();
+        document.getElementById('departments-section').style.display = 'block';
+        loadUserDepartments();
+    }
+
+    // === Загрузка отделов пользователя ===
+    function loadUserDepartments() {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        fetch('/company/api/get-departments/', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            const list = document.getElementById('departments-list');
+            const addButton = document.getElementById('add-department-btn');
+            const prompt = document.getElementById('create-company-prompt');
+
+            if (data.error) {
+                list.innerHTML = `<p style="color: red;">Ошибка: ${data.error}</p>`;
+                return;
+            }
+
+            userDepartments = data.departments || [];
+            if (userDepartments.length > 0) {
+                userCompany = userDepartments[0].company_id; // Предполагаем, что все отделы из одной компании
+                list.innerHTML = `
+                    <ul style="list-style: none; padding: 0;">
+                        ${userDepartments.map(d => `
+                            <li style="margin: 10px 0;">
+                                <a href="#" onclick="viewDepartment(${d.id}, event)">
+                                    <strong>${d.name}</strong>
+                                </a>
+                            </li>
+                        `).join('')}
+                    </ul>
+                `;
+                addButton.style.display = 'inline-block';
+                prompt.style.display = 'none';
+            } else {
+                list.innerHTML = '<p>Вы не состоите ни в одном отделе.</p>';
+                addButton.style.display = 'none';
+                prompt.style.display = 'block';
+            }
+        })
+        .catch(err => {
+            console.error('Ошибка загрузки отделов:', err);
+            document.getElementById('departments-list').innerHTML = '<p style="color: red;">Ошибка загрузки.</p>';
+        });
+    }
+
+   // === Просмотр отдела: загружает и показывает сотрудников ===
+function viewDepartment(deptId, event) {
+    event.preventDefault();
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const modalContent = `
+        <div id="department-users-modal" class="modal-content">
+            <h3>Сотрудники отдела</h3>
+            <div id="department-users-list">
+                <p>Загрузка...</p>
+            </div>
+            <div class="modal-buttons">
+                <button type="button" onclick="closeDepartmentUsersModal()">Закрыть</button>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalContent);
+    document.getElementById('department-users-modal').style.display = 'block';
+
+    // Загружаем пользователей
+    fetch('/company/api/view-department/', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({ department_id: deptId })
+    })
+    .then(response => response.json())
+    .then(data => {
+        const list = document.getElementById('department-users-list');
+        if (data.error) {
+            list.innerHTML = `<p style="color: red;">Ошибка: ${data.error}</p>`;
+            return;
+        }
+
+        if (data.users.length === 0) {
+            list.innerHTML = '<p>В отделе нет сотрудников.</p>';
+            return;
+        }
+
+        // Генерируем список с кнопками удаления
+        list.innerHTML = `
+            <ul style="list-style: none; padding: 0;">
+                ${data.users.map(user => `
+                    <li style="padding: 8px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>${user.username}</strong><br>
+                            <small>${user.email}</small>
+                        </div>
+                        <button
+                            onclick="removePersonnel(${deptId}, ${user.id})"
+                            style="background-color: #d9534f; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 0.9em;">
+                            Удалить
+                        </button>
+                    </li>
+                `).join('')}
+            </ul>
+        `;
+    })
+    .catch(err => {
+        console.error('Ошибка загрузки сотрудников:', err);
+        document.getElementById('department-users-list').innerHTML =
+            '<p style="color: red;">Ошибка сети.</p>';
+    });
+}
+
+// === Удалить сотрудника из отдела ===
+function removePersonnel(departmentId, userId) {
+    if (!confirm('Вы уверены, что хотите удалить этого сотрудника из отдела?')) {
+        return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    authenticatedFetch('/company/api/remove-personnel/', {
+        method: 'POST',
+        body: JSON.stringify({ department_id: departmentId, user_id: userId })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.error) {
+            alert('Ошибка: ' + data.error);
+        } else {
+            alert('Сотрудник удалён из отдела');
+            // Обновляем список
+            document.getElementById('department-users-list').innerHTML = '<p>Загрузка...</p>';
+            viewDepartment(departmentId, { preventDefault: () => {} }); // Перезагружаем
+        }
+    })
+    .catch(err => {
+        alert('Ошибка сети при удалении сотрудника');
+        console.error(err);
+    });
+}
+
+    // === Закрыть модальное окно просмотра сотрудников ===
+    function closeDepartmentUsersModal() {
+    const modal = document.getElementById('department-users-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+    // === Открыть модальное окно создания отдела ===
+    function openCreateDepartmentModal() {
+        document.getElementById('create-department-form').reset();
+        document.getElementById('create-department-modal').style.display = 'flex';
+    }
+
+    function closeCreateDepartmentModal() {
+        document.getElementById('create-department-modal').style.display = 'none';
+    }
+
+    // === Создать отдел ===
+    document.getElementById('create-department-form')?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const name = document.getElementById('department-name').value.trim();
+        if (!name) return alert('Введите название отдела');
+
+        authenticatedFetch('/company/api/create-department/', {
+            method: 'POST',
+            body: JSON.stringify({ name })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) return alert('Ошибка: ' + data.error);
+            alert('Отдел создан!');
+            closeCreateDepartmentModal();
+            loadUserDepartments();
+        })
+        .catch(err => alert('Ошибка сети'));
+    });
+
+    // === Сохранить изменения отдела ===
+    document.getElementById('edit-department-form')?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const id = document.getElementById('edit-department-id').value;
+        const name = document.getElementById('edit-department-name').value.trim();
+
+        authenticatedFetch('/company/edit-department/', {
+            method: 'POST',
+            body: JSON.stringify({ department_id: id, name })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) return alert('Ошибка: ' + data.error);
+            alert('Отдел обновлён!');
+            closeEditDepartmentModal();
+            loadUserDepartments();
+        })
+        .catch(err => alert('Ошибка сети'));
+    });
+
+    function closeEditDepartmentModal() {
+        document.getElementById('edit-department-modal').style.display = 'none';
+    }
+
+    // === Создать компанию (заглушка — можно отправить запрос на сервер) ===
+    function createCompany() {
+        const name = prompt("Введите название компании:");
+        if (!name || !name.trim()) return;
+
+        authenticatedFetch('/company/create-company/', {
+            method: 'POST',
+            body: JSON.stringify({ name: name.trim() })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) return alert('Ошибка: ' + data.error);
+            alert('Компания создана!');
+            loadUserDepartments(); // Обновляем
+        })
+        .catch(err => alert('Ошибка создания компании'));
+    }
+
+    // === Вспомогательные функции (остаются без изменений) ===
+    function hideAllSections() {
+        document.getElementById('welcome-message').style.display = 'none';
+        document.getElementById('filters-section').style.display = 'none';
+        document.getElementById('tasks-board').style.display = 'none';
+        document.getElementById('add-task-section').style.display = 'none';
+        document.getElementById('departments-section').style.display = 'none';
+    }
+
+    function showLogin() {
+        document.getElementById('auth-header').innerHTML = `
+            <a href="/api/login/" class="btn btn-primary">Войти</a>
+        `;
+    }
+
+    function updateAuthHeader() {
+        if (currentUser) {
+            document.getElementById('auth-header').innerHTML = `
+                <span class="username">Здравствуйте, ${currentUser.username}!</span>
+                <button onclick="logout()" class="btn btn-danger">Выйти</button>
+            `;
+        }
+    }
+
+    function logout() {
+        localStorage.removeItem('token');
+        window.location.href = '/api/login/';
+    }
+
+    // === Загрузка при старте ===
+    window.addEventListener('DOMContentLoaded', function () {
+        loadUserData();
+    });
+</script>
+</body>
+</html>
