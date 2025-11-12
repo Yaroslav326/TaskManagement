@@ -39,6 +39,8 @@ INSTALLED_APPS = [
     'authentication.apps.AuthenticationConfig',
     'account.apps.AccountConfig',
     'counter.apps.CounterConfig',
+    'company.apps.CompanyConfig',
+    'custom_commands.apps.CustomCommandsConfig',
     'corsheaders',
 ]
 

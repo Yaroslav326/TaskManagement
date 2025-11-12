@@ -11,6 +11,7 @@
 <header class="main-header">
     <div class="logo">
         <a href="/account/" class="btn btn-secondary">Личный кабинет</a>
+        <a href="/company/" class="btn btn-secondary">Компания</a>
     </div>
     <div class="user-controls" id="auth-header">
         <!-- Имя пользователя и кнопка Войти/Выйти будут загружены сюда -->
@@ -18,7 +19,7 @@
 </header>
 
 <!-- Фильтры -->
-<div class="filters" id="filters-section" style="display: none;">
+<div class="filters" id="filters-section">
     <form method="get">
         <label for="status-filter">Статус:</label>
         <select name="status" id="status-filter">
@@ -388,6 +389,20 @@
           })
           .catch(err => console.error(err));
     }
+    function applyFilters() {
+    const status = document.getElementById('status-filter').value;
+    const start_date = document.getElementById('start-date').value;
+    const end_date = document.getElementById('end-date').value;
+
+    // Создаём URL с параметрами
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    if (start_date) params.append('start_date', start_date);
+    if (end_date) params.append('end_date', end_date);
+
+    // Перезагружаем страницу с фильтрами
+    window.location.href = window.location.pathname + '?' + params.toString();
+}
 </script>
 
 </body>

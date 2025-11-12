@@ -8,11 +8,13 @@ from task.forms import TaskForm, SubtaskForm
 from rest_framework import authentication
 from django.conf import settings
 from authentication.models import User
+from django.views.decorators.cache import cache_page
 from .forms import UserUpdateForm
 import jwt
 import json
 
 
+@cache_page(60 * 15)
 def user_task(request):
     return render(request, 'user_task.html', {
         'status_choices': Task.STATUS_CHOICES
@@ -29,7 +31,9 @@ def get_user_payload(request):
 
         token = auth_header[1].decode('utf-8')
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
-        return payload, None  # payload, error
+
+        return payload, None
+
     except jwt.ExpiredSignatureError:
         return None, JsonResponse({'error': 'Token expired'}, status=401)
     except jwt.InvalidTokenError:
