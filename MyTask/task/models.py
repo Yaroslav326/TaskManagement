@@ -13,9 +13,12 @@ class Task(models.Model):
                               default='todo')
     date_start = models.DateTimeField(auto_now_add=True)
     date_end = models.DateTimeField(null=True, blank=True)
+    customer = models.ForeignKey(settings.AUTH_USER_MODEL,
+                                 on_delete=models.CASCADE,
+                                 null=True, blank=True, related_name='customer')
     employee = models.ForeignKey(settings.AUTH_USER_MODEL,
                                  on_delete=models.CASCADE,
-                                 null=True, blank=True)
+                                 null=True, blank=True, related_name='employee')
     remark = models.TextField(null=True)
 
     def __str__(self):

@@ -3,7 +3,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import render
-from django.views import View
+from django.http import JsonResponse
 
 from .serializers import (RegistrationSerializer, LoginSerializer,
                           UserSerializer)
@@ -34,7 +34,22 @@ class LoginAPIView(APIView):
         serializer = self.serializer_class(data=user)
         serializer.is_valid(raise_exception=True)
 
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        user_data = serializer.data
+
+        response = JsonResponse({'user': user_data})
+
+        token = user_data.get('token')
+        if token:
+            response.set_cookie(
+                key='jwt',
+                value=token,
+                httponly=True,
+                secure=False,
+                samesite='Lax',
+                max_age=3600
+            )
+
+        return response
 
 
 class UserRetrieveUpdateAPIView(APIView):

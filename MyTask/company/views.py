@@ -43,7 +43,7 @@ def company_profile_page(request):
     return render(request, 'profile.html')
 
 
-def lict_departments(request):
+def list_departments(request):
     return render(request, 'departments.html')
 
 

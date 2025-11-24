@@ -52,7 +52,12 @@
             <strong>{{ task.title }}</strong>
             <p>{{ task.remark|default:'' }}</p>
             <p><small>Создано: {{ task.date_start }}</small></p>
-            <p><small>Окончание: {{ task.date_end|default:"—" }}</small></p>
+            <p>
+                <small class="{% if task.date_end and task.date_end < today and task.status != 'done' %}overdue{% endif %}">
+                    Окончание: {{ task.date_end|default:"—" }}
+                </small>
+            </p>
+            <p><small>Назначил: {{ task.customer.username|default:"Нет" }}</small></p>
             <p><small>Исполнитель: {{ task.employee.username|default:"Нет" }}</small></p>
             <button onclick="editTask({{ task.id }})">Edit</button>
             <button onclick="deleteTask({{ task.id }})">Delete</button>
@@ -255,66 +260,75 @@
     }
 
     function editTask(taskId) {
-        const taskElement = document.getElementById(`card-${taskId}`);
-        if (!taskElement) return;
+    const taskElement = document.getElementById(`card-${taskId}`);
+    if (!taskElement) return;
 
-        const strong = taskElement.querySelector('strong');
-        const p = taskElement.querySelector('p');
+    const strong = taskElement.querySelector('strong');
+    const p = taskElement.querySelector('p');
+    const dateEndText = Array.from(taskElement.querySelectorAll('small'))
+                            .find(el => el.textContent.includes('Окончание:'))?.textContent
+                            .replace('Окончание: ', '');
 
-        const title = strong ? strong.innerText : '';
-        const remark = p ? p.innerText : '';
+    const title = strong ? strong.innerText : '';
+    const remark = p ? p.innerText : '';
+    const dateEnd = dateEndText && dateEndText !== '—' ? dateEndText.split(' ')[0] : ''; // Извлекаем дату
 
-        const form = document.createElement('form');
-        form.innerHTML = `
-            <input type="text" value="${title}" id="edit-title-${taskId}" />
-            <textarea id="edit-remark-${taskId}">${remark}</textarea>
-            <button type="button" onclick="saveTask(${taskId})">Save</button>
-            <button type="button" onclick="cancelEdit()">Cancel</button>
-        `;
+    const form = document.createElement('form');
+    form.innerHTML = `
+        <input type="text" value="${title}" id="edit-title-${taskId}" />
+        <textarea id="edit-remark-${taskId}">${remark}</textarea>
+        <label>Дата окончания: <input type="date" id="edit-date-end-${taskId}" value="${dateEnd}" /></label>
+        <button type="button" onclick="saveTask(${taskId})">Save</button>
+        <button type="button" onclick="cancelEdit()">Cancel</button>
+    `;
 
-        taskElement.innerHTML = '';
-        taskElement.appendChild(form);
-    }
+    taskElement.innerHTML = '';
+    taskElement.appendChild(form);
+}
+
 
     function saveTask(taskId) {
-        const title = document.getElementById(`edit-title-${taskId}`).value.trim();
-        const remark = document.getElementById(`edit-remark-${taskId}`).value.trim();
+    const title = document.getElementById(`edit-title-${taskId}`).value.trim();
+    const remark = document.getElementById(`edit-remark-${taskId}`).value.trim();
+    const dateEnd = document.getElementById(`edit-date-end-${taskId}`).value || null;
 
-        if (!title) return alert("Title is required");
+    if (!title) return alert("Title is required");
 
-        authenticatedFetch('/edit-task-ajax/', {
-            method: 'POST',
-            body: JSON.stringify({
-                task_id: taskId,
-                title: title,
-                remark: remark
-            })
-        }).then(res => res.json())
-          .then(data => {
-              if (data.error) {
-                  alert(data.error);
-                  return;
-              }
+    authenticatedFetch('/edit-task-ajax/', {
+        method: 'POST',
+        body: JSON.stringify({
+            task_id: taskId,
+            title: title,
+            remark: remark,
+            end_date: dateEnd
+        })
+    }).then(res => res.json())
+      .then(data => {
+          if (data.error) {
+              alert(data.error);
+              return;
+          }
 
-              const taskElement = document.getElementById(`card-${taskId}`);
-              taskElement.innerHTML = `
-                  <strong>${data.title}</strong>
-                  <p>${data.remark || ''}</p>
-                  <p><small>Создано: ${data.date_start}</small></p>
-                  <p><small>Окончание: ${data.date_end || "—"}</small></p>
-                  <p><small>Исполнитель: ${data.employee || "Нет"}</small></p>
-                  <button onclick="deleteTask(${taskId})">Delete</button>
-                  <button onclick="editTask(${taskId})">Edit</button>
-                  <select onchange="updateTaskStatus(${taskId}, this.value)">
-                      <option value="todo" ${data.status === 'todo' ? 'selected' : ''}>Todo</option>
-                      <option value="in_progress" ${data.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
-                      <option value="done" ${data.status === 'done' ? 'selected' : ''}>Done</option>
-                  </select>
-                  ${data.employee ? '' : `<button onclick="takeTask(${taskId})">Взять задачу</button>`}
-              `;
-          })
-          .catch(err => console.error(err));
-    }
+          const taskElement = document.getElementById(`card-${taskId}`);
+          taskElement.innerHTML = `
+              <strong>${data.title}</strong>
+              <p>${data.remark || ''}</p>
+              <p><small>Создано: ${data.date_start}</small></p>
+              <p><small>Окончание: ${data.date_end || "—"}</small></p>
+              <p><small>Исполнитель: ${data.employee || "Нет"}</small></p>
+              <button onclick="deleteTask(${taskId})">Delete</button>
+              <button onclick="editTask(${taskId})">Edit</button>
+              <select onchange="updateTaskStatus(${taskId}, this.value)">
+                  <option value="todo" ${data.status === 'todo' ? 'selected' : ''}>Todo</option>
+                  <option value="in_progress" ${data.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
+                  <option value="done" ${data.status === 'done' ? 'selected' : ''}>Done</option>
+              </select>
+              ${data.employee ? '' : `<button onclick="takeTask(${taskId})">Взять задачу</button>`}
+          `;
+      })
+      .catch(err => console.error(err));
+}
+
 
     function cancelEdit() {
         location.reload(); // Перезагрузка страницы

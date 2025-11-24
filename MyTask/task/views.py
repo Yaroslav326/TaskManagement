@@ -2,14 +2,73 @@ from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
-from django.db.models import Case, Value, IntegerField, When
+from django.db.models import Case, Value, IntegerField, When, Q
 from .models import Task, Subtask
 from .forms import TaskForm, SubtaskForm
 from rest_framework import authentication
 from django.conf import settings
+from datetime import date
 from authentication.models import User
+from company.models import Department
 import jwt
 import json
+
+
+def get_user_payload(request):
+    auth_header = authentication.get_authorization_header(request).split()
+    if len(auth_header) == 2:
+        token = auth_header[1].decode('utf-8')
+    else:
+        token = request.COOKIES.get('jwt')
+        if not token:
+            return None, JsonResponse(
+                {'error': 'Authorization header or cookie missing'},
+                status=401
+            )
+
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+        return payload, None
+    except jwt.ExpiredSignatureError:
+        return None, JsonResponse({'error': 'Token expired'}, status=401)
+    except jwt.InvalidTokenError:
+        return None, JsonResponse({'error': 'Invalid token'}, status=401)
+
+
+def parse_json_body(request):
+    try:
+        return json.loads(request.body), None
+    except json.JSONDecodeError:
+        return {}, JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+
+def company_tasks(request):
+    """
+    Возвращает QuerySet задач, связанных с пользователями из компании текущего
+    пользователя.
+    """
+    payload, error = get_user_payload(request)
+    if error:
+        return error
+
+    try:
+        user = User.objects.get(id=payload['user_id'])
+    except User.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
+
+    company_id = Department.objects.filter(personnel=user).values_list(
+        'company_id', flat=True).first()
+    if not company_id:
+        return Task.objects.none()
+
+    users_in_company = User.objects.filter(
+        assigned_departments__company_id=company_id).distinct()
+
+    tasks = Task.objects.filter(
+        Q(customer__in=users_in_company) | Q(employee__in=users_in_company)
+    ).distinct()
+
+    return tasks
 
 
 def task_kanban(request) -> HttpResponse:
@@ -27,7 +86,9 @@ def task_kanban(request) -> HttpResponse:
     Kanban или редирект на неё
     """
 
-    tasks = Task.objects.all()
+    tasks = company_tasks(request)
+    if isinstance(tasks, JsonResponse):
+        return tasks
 
     status_filter = request.GET.get('status')
     if status_filter and status_filter in dict(Task.STATUS_CHOICES):
@@ -57,7 +118,8 @@ def task_kanban(request) -> HttpResponse:
         'tasks': tasks,
         'task_form': task_form,
         'subtask_form': subtask_form,
-        'status_choices': Task.STATUS_CHOICES
+        'status_choices': Task.STATUS_CHOICES,
+        'today': date.today()
     })
 
 
@@ -76,6 +138,13 @@ def add_task(request) -> JsonResponse:
     HTML-представлением
     """
 
+    auth_header = authentication.get_authorization_header(request).split()
+
+    token = auth_header[1].decode('utf-8')
+    payload = jwt.decode(token, key=settings.SECRET_KEY, algorithms=['HS256'])
+
+    user = User.objects.get(id=payload['user_id'])
+
     data = json.loads(request.body)
     title = data.get('title', '').strip()
     if not title:
@@ -83,6 +152,7 @@ def add_task(request) -> JsonResponse:
 
     try:
         task = Task.objects.create(
+            customer=user,
             title=title,
             status='todo'
         )
@@ -216,7 +286,8 @@ def delete_subtask_ajax(request) -> JsonResponse:
         data = json.loads(request.body)
         subtask_id = int(data.get('subtask_id'))
     except (ValueError, KeyError, json.JSONDecodeError):
-        return JsonResponse({'error': 'Invalid or missing data'}, status=400)
+        return JsonResponse({'error': 'Invalid or missing data'},
+                            status=400)
 
     if not subtask_id:
         return JsonResponse({'error': 'Missing subtask ID'}, status=400)
@@ -250,10 +321,12 @@ def edit_subtask_ajax(request) -> JsonResponse:
         subtask_id = int(data.get('subtask_id'))
         title = data.get('title', '').strip()
     except (ValueError, KeyError, json.JSONDecodeError):
-        return JsonResponse({'error': 'Invalid or missing data'}, status=400)
+        return JsonResponse({'error': 'Invalid or missing data'},
+                            status=400)
 
     if not subtask_id or not title:
-        return JsonResponse({'error': 'Missing required data'}, status=400)
+        return JsonResponse({'error': 'Missing required data'},
+                            status=400)
 
     try:
         subtask = Subtask.objects.get(id=subtask_id)
@@ -289,7 +362,8 @@ def toggle_subtask_ajax(request) -> JsonResponse:
         subtask_id = int(data.get('subtask_id'))
         is_completed = data.get('is_completed') == 'true'
     except (ValueError, KeyError, json.JSONDecodeError):
-        return JsonResponse({'error': 'Invalid or missing data'}, status=400)
+        return JsonResponse({'error': 'Invalid or missing data'},
+                            status=400)
 
     if not subtask_id:
         return JsonResponse({'error': 'Missing subtask ID'}, status=400)
@@ -308,43 +382,48 @@ def toggle_subtask_ajax(request) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["POST"])
 def edit_task_ajax(request) -> JsonResponse:
-    """
-    Функция редактирования задачи.
-
-    Обрабатывает AJAX-запросы на изменение заголовка и примечания задачи.
-    Получает ID задачи, новый заголовок и примечание из JSON-тела запроса.
-
-    Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
-
-    Returns: JsonResponse - JSON-объект с обновленными данными задачи
-    """
     try:
         data = json.loads(request.body)
         task_id = int(data.get('task_id'))
         title = data.get('title', '').strip()
         remark = data.get('remark', '').strip()
+        end_date_str = data.get('end_date')
     except (ValueError, KeyError, json.JSONDecodeError):
-        return JsonResponse({'error': 'Invalid or missing data'}, status=400)
+        return JsonResponse({'error': 'Invalid or missing data'},
+                            status=400)
 
     if not task_id or not title:
-        return JsonResponse({'error': 'Missing required data'}, status=400)
+        return JsonResponse({'error': 'Missing required data'},
+                            status=400)
 
     try:
         task = Task.objects.get(id=task_id)
-        task.title = title
-        task.remark = remark
-        task.save()
-
-        return JsonResponse({
-            'id': task.id,
-            'title': task.title,
-            'remark': task.remark,
-            'status': task.status
-        })
     except Task.DoesNotExist:
         return JsonResponse({'error': 'Task not found'}, status=404)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+
+    end_date = None
+    if end_date_str:
+        try:
+            end_date = date.fromisoformat(end_date_str)
+        except ValueError:
+            return JsonResponse(
+                {'error': 'Invalid date format. Use YYYY-MM-DD.'},
+                status=400)
+
+    task.title = title
+    task.remark = remark
+    task.date_end = end_date
+    task.save()
+
+    return JsonResponse({
+        'id': task.id,
+        'title': task.title,
+        'remark': task.remark,
+        'status': task.status,
+        'date_start': task.date_start.strftime('%Y-%m-%d'),
+        'date_end': task.date_end.strftime(
+            '%Y-%m-%d') if task.date_end else None,
+    })
 
 
 @csrf_exempt
@@ -366,10 +445,12 @@ def update_task_status(request) -> JsonResponse:
         task_id = int(data.get('task_id'))
         new_status = data.get('new_status')
     except (ValueError, KeyError, json.JSONDecodeError):
-        return JsonResponse({'error': 'Invalid or missing data'}, status=400)
+        return JsonResponse({'error': 'Invalid or missing data'},
+                            status=400)
 
     if not task_id or not new_status:
-        return JsonResponse({'error': 'Missing required data'}, status=400)
+        return JsonResponse({'error': 'Missing required data'},
+                            status=400)
 
     try:
         task = Task.objects.get(id=task_id)
@@ -406,7 +487,8 @@ def update_subtask_status(request) -> JsonResponse:
                             status=400)
 
     if not subtask_id or not new_status:
-        return JsonResponse({'error': 'Missing required data'}, status=400)
+        return JsonResponse({'error': 'Missing required data'},
+                            status=400)
 
     try:
         subtask = Subtask.objects.get(id=subtask_id)
@@ -433,7 +515,8 @@ def take_task_ajax(request) -> JsonResponse:
 
     Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
 
-    Returns: JsonResponse - JSON-объект с флагом успеха операции и именем пользователя
+    Returns: JsonResponse - JSON-объект с флагом успеха операции и именем
+    пользователя
     """
 
     request.user = None
@@ -448,7 +531,8 @@ def take_task_ajax(request) -> JsonResponse:
         data = json.loads(request.body)
         task_id = int(data.get('task_id'))
     except (ValueError, KeyError, json.JSONDecodeError):
-        return JsonResponse({'error': 'Invalid or missing data'}, status=400)
+        return JsonResponse({'error': 'Invalid or missing data'},
+                            status=400)
 
     try:
         task = Task.objects.get(id=task_id)

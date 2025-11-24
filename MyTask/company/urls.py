@@ -3,7 +3,7 @@ from . import views
 
 app_name = 'company'
 urlpatterns = [
-    path('', views.lict_departments, name='list_departments'),
+    path('', views.list_departments, name='list_departments'),
     path('profile/', views.company_profile_page, name='company_profile_page'),
     path('api/profile/', views.company_profile, name='company_profile'),
     path('api/create/', views.create_company, name='create_company'),
