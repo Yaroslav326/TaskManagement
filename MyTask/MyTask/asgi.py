@@ -15,12 +15,14 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'MyTask.settings')
 django_asgi_app = get_asgi_application()
 
 from django.conf import settings
+
 print("CHANNEL_LAYERS:", settings.CHANNEL_LAYERS)
 
 from channels.routing import ProtocolTypeRouter, URLRouter
 from chat.middleware import JWTAuthMiddlewareStack
 from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
 from chat import routing
+
 
 class StaticFilesASGIHandler(ASGIStaticFilesHandler):
     """Кастомный handler для статики в ASGI"""
@@ -35,4 +37,3 @@ application = ProtocolTypeRouter({
         )
     ),
 })
-

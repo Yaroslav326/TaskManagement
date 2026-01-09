@@ -12,7 +12,7 @@ class Company(models.Model):
 
 class Department(models.Model):
     name = models.CharField(max_length=50)
-    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE,  related_name='departments')
     personnel = models.ManyToManyField(User, related_name='assigned_departments')
 
     def __str__(self):

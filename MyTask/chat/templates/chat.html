@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Chat</title>
+    <title>Командный чат</title>
     {% load static %}
     <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+
 </head>
 <body>
 
@@ -19,63 +20,130 @@
     </div>
 </header>
 
-<!-- Основной контент чата -->
-<div class="chat-container">
-    <h2>Чат команды</h2>
-
-    <div class="chat-box" id="chat-box">
-        <!-- Сообщения будут добавляться сюда -->
+<div class="chat-layout">
+    <!-- Сайдбар с выбором чатов -->
+    <div class="sidebar">
+        <h3>Чаты</h3>
+        <ul class="chat-list" id="chat-list">
+            <!-- Чаты будут добавлены через JS -->
+        </ul>
     </div>
 
-    <div class="input-area">
-        <input type="text" id="message-input" placeholder="Введите сообщение..." />
-        <button onclick="sendMessage()">Отправить</button>
+    <!-- Основная зона чата -->
+    <div class="main-chat">
+        <h2 id="chat-title">Выберите чат</h2>
+
+        <div class="chat-box" id="chat-box">
+            <!-- Сообщения будут добавляться сюда -->
+        </div>
+
+        <div class="input-area">
+            <input type="text" id="message-input" placeholder="Введите сообщение..." disabled />
+            <button onclick="sendMessage()" disabled>Отправить</button>
+        </div>
     </div>
 </div>
 
 <script src="{% static 'js/utils.js' %}"></script>
 
 <script>
-    // Обновление шапки
-    function updateAuthHeader() {
-        const token = localStorage.getItem('token');
-        const authHeader = document.getElementById('auth-header');
+    // === Глобальные переменные ===
+    let chatSocket = null;
+    let currentChatRoom = null;
+    let currentUsername = null;  // ← Устанавливается один раз при загрузке
 
-        if (token) {
-            authenticatedFetch('/api/users/update/', {
-                method: 'GET'
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.user && data.user.username) {
-                    authHeader.innerHTML = `
-                        <span class="username">Здравствуйте, ${data.user.username}!</span>
-                        <button onclick="logout()" class="btn btn-danger">Выйти</button>
-                    `;
-                } else {
-                    redirectToLogin();
-                }
-            })
-            .catch(redirectToLogin);
-        } else {
-            redirectToLogin();
-        }
+    // Список чатов (передаётся из Django в JSON)
+    const availableChats = {{ chats_json|safe }};
+
+    // === Получение имени пользователя и обновление шапки ===
+    function updateAuthHeader() {
+    // Логируем для отладки
+    console.log('Попытка обновить шапку авторизации');
+    const token = localStorage.getItem('token');
+    console.log('Токен из localStorage:', token ? 'есть' : 'отсутствует');
+
+    if (!token) {
+        console.warn('Токен не найден → редирект на /api/login/');
+        redirectToLogin();
+        return;
     }
+
+    authenticatedFetch('/api/users/update/', { method: 'GET' })
+        .then(res => {
+            console.log('Ответ от /api/users/update/:', res.status);
+            if (!res.ok) throw new Error('Сетевая ошибка');
+            return res.json();
+        })
+        .then(data => {
+            console.log('Данные пользователя:', data);
+            if (data.user && data.user.username) {
+                currentUsername = data.user.username;
+                const usernameSpan = document.querySelector('.username');
+                if (usernameSpan) usernameSpan.remove();
+                const span = document.createElement('span');
+                span.className = 'username';
+                span.textContent = `Здравствуйте, ${data.user.username}!`;
+                document.querySelector('.logo').appendChild(span);
+            } else {
+                console.warn('Пользователь не найден в ответе → редирект');
+            }
+        })
+        .catch(err => {
+            console.error('Ошибка при получении данных пользователя:', err);
+        });
+}
+
 
     function redirectToLogin() {
-        authHeader.innerHTML = `<a href="/api/login/" class="btn btn-primary">Войти</a>`;
-    }
-
-    function logout() {
-        localStorage.removeItem('token');
         window.location.href = '/api/login/';
     }
 
-    // WebSocket
-    let chatSocket = null;
+    // === Рендер списка чатов ===
+    function renderChatList() {
+        const chatListEl = document.getElementById('chat-list');
+        chatListEl.innerHTML = '';
 
+        availableChats.forEach(chat => {
+            const li = document.createElement('li');
+            li.textContent = chat.display_name;
+            li.dataset.roomName = chat.room_name;
+            if (chat.room_name === currentChatRoom) {
+                li.classList.add('active');
+            }
+            li.onclick = () => switchChat(chat.room_name);
+            chatListEl.appendChild(li);
+        });
+    }
+
+    // === Переключение чата ===
+    function switchChat(roomName) {
+    if (currentChatRoom === roomName) return;
+
+    currentChatRoom = roomName;
+    document.getElementById('chat-title').textContent = getChatTitle(roomName);
+    document.getElementById('chat-box').innerHTML = '';
+    renderChatList();
+
+    const input = document.getElementById('message-input');
+    const button = document.querySelector('button');
+    input.disabled = true;
+    button.disabled = true;
+
+    if (chatSocket) {
+        chatSocket.onclose = () => {
+            chatSocket = null;
+            connectWebSocket();
+        };
+        chatSocket.close();
+    } else {
+        connectWebSocket();
+    }
+}
+
+    // === Подключение к WebSocket ===
     function connectWebSocket() {
-        const chatroomName = "{{ chatroom_name }}";
+        if (!currentChatRoom) return;
+
         const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
         const host = window.location.host;
         const token = localStorage.getItem('token');
@@ -86,73 +154,108 @@
             return;
         }
 
-        chatSocket = new WebSocket(
-            `${protocol}://${host}/ws/chat/${chatroomName}/`
-        );
+        chatSocket = new WebSocket(`${protocol}://${host}/ws/chat/${currentChatRoom}/`);
 
-        chatSocket.onopen = function(e) {
-            console.log("WebSocket соединение установлено");
+        chatSocket.onopen = () => {
+            console.log(`✅ Подключено к чату: ${currentChatRoom}`);
         };
 
         chatSocket.onmessage = function(e) {
-            const data = JSON.parse(e.data);
-            const chatBox = document.getElementById('chat-box');
+    const data = JSON.parse(e.data);
+    const chatBox = document.getElementById('chat-box');
+
+    if (data.type === 'history') {
+        data.messages.forEach(msg => {
             const messageElement = document.createElement('div');
+            const isCurrentUser = msg.username === currentUsername;
 
-            // Определяем, "Вы" это или другой пользователь
-            const isCurrentUser = data.username === "{{ request.user.username }}";
-
-            // Формируем отображение
             if (isCurrentUser) {
                 messageElement.className = 'message-container my-message-container';
                 messageElement.innerHTML = `
                     <div class="message my-message">
-                        <strong>Вы:</strong> ${data.message}
+                        <strong>Вы:</strong> ${escapeHtml(msg.message)}
                     </div>
                 `;
             } else {
                 messageElement.className = 'message-container other-message-container';
                 messageElement.innerHTML = `
                     <div class="message other-message">
-                        <strong>${data.username}:</strong> ${data.message}
+                        <strong>${escapeHtml(msg.username)}:</strong> ${escapeHtml(msg.message)}
                     </div>
                 `;
             }
-
-            // Добавляем в чат и прокручиваем вниз
             chatBox.appendChild(messageElement);
-            chatBox.scrollTop = chatBox.scrollHeight;
+        });
+    } else {
+        const messageElement = document.createElement('div');
+        const isCurrentUser = data.username === currentUsername;
+
+        if (isCurrentUser) {
+            messageElement.className = 'message-container my-message-container';
+            messageElement.innerHTML = `
+                <div class="message my-message">
+                    <strong>Вы:</strong> ${escapeHtml(data.message)}
+                </div>
+            `;
+        } else {
+            messageElement.className = 'message-container other-message-container';
+            messageElement.innerHTML = `
+                <div class="message other-message">
+                    <strong>${escapeHtml(data.username)}:</strong> ${escapeHtml(data.message)}
+                </div>
+            `;
+        }
+        chatBox.appendChild(messageElement);
+    }
+
+    chatBox.scrollTop = chatBox.scrollHeight;
+};
+
+        chatSocket.onclose = () => {
+            console.log("Соединение закрыто. Переподключение...");
+            setTimeout(() => connectWebSocket(), 3000);
         };
 
-        chatSocket.onclose = function(e) {
-            console.log("WebSocket соединение закрыто");
-            setTimeout(connectWebSocket, 3000); // Переподключение
-        };
-
-        chatSocket.onerror = function(err) {
-            console.error("WebSocket ошибка:", err);
+        chatSocket.onerror = (err) => {
+            console.error("Ошибка WebSocket:", err);
         };
     }
 
-    // Отправка сообщения
+    // === Отправка сообщения ===
     function sendMessage() {
         const input = document.getElementById('message-input');
         const message = input.value.trim();
         if (!message || !chatSocket) return;
 
-        // Отправляем на сервер
-        chatSocket.send(JSON.stringify({
-            'message': message
-        }));
-
-        // Очищаем поле ввода
+        chatSocket.send(JSON.stringify({ message }));
         input.value = '';
     }
 
-    // Инициализация
+    // === Экранирование HTML (защита от XSS) ===
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // === Получить отображаемое имя чата ===
+    function getChatTitle(roomName) {
+        if (roomName === 'company') return 'Общий чат компании';
+        if (roomName.startsWith('department_')) {
+            return 'Чат отдела: ' + roomName.split('department_')[1];
+        }
+        return 'Чат';
+    }
+
+    // === Инициализация ===
     window.addEventListener('DOMContentLoaded', function () {
         updateAuthHeader();
-        connectWebSocket();
+        renderChatList();
+
+        // Установить первый чат по умолчанию
+        if (availableChats.length > 0 && !currentChatRoom) {
+            switchChat(availableChats[0].room_name);
+        }
     });
 </script>
 

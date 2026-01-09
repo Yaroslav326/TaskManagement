@@ -3,6 +3,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from channels.db import database_sync_to_async
 from authentication.models import User
+from channels.auth import AuthMiddlewareStack
 import logging
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,4 @@ class JWTAuthMiddleware:
 
 
 def JWTAuthMiddlewareStack(app):
-    """Удобная обёртка, как AuthMiddlewareStack"""
-    from channels.auth import AuthMiddlewareStack
     return JWTAuthMiddleware(AuthMiddlewareStack(app))
