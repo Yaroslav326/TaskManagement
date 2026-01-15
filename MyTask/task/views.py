@@ -7,6 +7,7 @@ from .models import Task, Subtask
 from .forms import TaskForm, SubtaskForm
 from rest_framework import authentication
 from django.conf import settings
+from send_mail.tasks import send_email_task
 from datetime import date
 from authentication.models import User
 from company.models import Department
@@ -456,6 +457,11 @@ def update_task_status(request) -> JsonResponse:
         task = Task.objects.get(id=task_id)
         task.status = new_status
         task.save()
+        send_email_task.delay(
+            subject="Task status updated",
+            message=f"Task '{task.title}' is now '{new_status}'.",
+            recipient_list=["yaroslav-kotov-91@mail.ru"]
+        )
         return JsonResponse({
             'status': task.status
         })

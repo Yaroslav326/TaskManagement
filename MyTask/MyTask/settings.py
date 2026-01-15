@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'custom_commands.apps.CustomCommandsConfig',
     'send_mail.apps.SendMailConfig',
     'chat.apps.ChatConfig',
+    'django_celery_results',
 ]
 
 MIDDLEWARE = [
@@ -143,14 +144,21 @@ REST_FRAMEWORK = {
     ),
 }
 
-REDIS_HOST = '0.0.0.0'
-REDIS_PORT = '6379'
-CELERY_BROKER_URL = 'redis://' + REDIS_HOST + ':' + REDIS_PORT + '/0'
-CELERY_BROKER_TRANSPORT_OPTIONS = {'visibility_timeout': 3600}
-CELERY_RESULT_BACKEND = 'redis://' + REDIS_HOST + ':' + REDIS_PORT + '/0'
-CELERY_ACCEPT_CONTENT = ['application/json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
+CELERY_BROKER_URL = 'amqp://localhost'
+
+
+CELERY_RESULT_BACKEND = 'django-db'
+CELERY_TASK_IGNORE_RESULT = True
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+DEFAULT_FROM_EMAIL = 'yaroslav-kotov-91@mail.ru'
+
+EMAIL_HOST = 'smtp.mail.ru'
+EMAIL_PORT = 587
+EMAIL_HOST_USER = "yaroslav-kotov-91@mail.ru"
+EMAIL_HOST_PASSWORD = "o3sLPzNpqZeVkPdEjgcH"
+EMAIL_USE_TLS = True
+EMAIL_USE_SSL = False
 
 CHANNEL_LAYERS = {
   'default': {
