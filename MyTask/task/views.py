@@ -11,8 +11,11 @@ from send_mail.tasks import send_email_task
 from datetime import date
 from authentication.models import User
 from company.models import Department
+from loguru import logger
 import jwt
 import json
+
+logger.add("logs_task.log", rotation="500 MB")
 
 
 def get_user_payload(request):
@@ -29,17 +32,22 @@ def get_user_payload(request):
 
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+        logger.info(f"Payload: {payload}")
         return payload, None
     except jwt.ExpiredSignatureError:
+        logger.error("Token expired")
         return None, JsonResponse({'error': 'Token expired'}, status=401)
     except jwt.InvalidTokenError:
+        logger.error("Invalid token")
         return None, JsonResponse({'error': 'Invalid token'}, status=401)
 
 
 def parse_json_body(request):
     try:
+        logger.info(f"Request body: {request.body}")
         return json.loads(request.body), None
     except json.JSONDecodeError:
+        logger.error("Invalid JSON")
         return {}, JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
@@ -54,7 +62,9 @@ def company_tasks(request):
 
     try:
         user = User.objects.get(id=payload['user_id'])
+        logger.info(f"User: {user}")
     except User.DoesNotExist:
+        logger.error("User not found, id: {payload['user_id']}")
         return JsonResponse({'error': 'User not found'}, status=404)
 
     company_id = Department.objects.filter(personnel=user).values_list(
@@ -157,6 +167,7 @@ def add_task(request) -> JsonResponse:
             title=title,
             status='todo'
         )
+        logger.info(f"Task created: {task}")
         return JsonResponse({
             'id': task.id,
             'title': task.title,
@@ -179,6 +190,8 @@ def add_task(request) -> JsonResponse:
             """
         })
     except Exception as e:
+        logger.error(f"Error creating task: {e}, data: {data},"
+                     f" payload: {payload}")
         return JsonResponse({'error': str(e)}, status=500)
 
 
@@ -201,7 +214,9 @@ def add_subtask(request) -> JsonResponse:
         data = json.loads(request.body)
         task_id = int(data.get('task_id'))
         subtask_title = data.get('subtask_title')
+        logger.info(f"Subtask data: {data}")
     except (ValueError, KeyError, json.JSONDecodeError):
+        logger.error("Invalid or missing task ID")
         return JsonResponse({'error': 'Invalid or missing task ID'},
                             status=400)
 
@@ -211,13 +226,17 @@ def add_subtask(request) -> JsonResponse:
 
     try:
         task_id = int(task_id)
+        logger.info(f"Task ID: {task_id}")
     except ValueError:
+        logger.error("Invalid task ID format")
         return JsonResponse({'error': 'Invalid task ID format'},
                             status=400)
 
     try:
         task = Task.objects.get(id=task_id)
+        logger.info(f"Task found: {task}")
     except Task.DoesNotExist:
+        logger.error(f"Task not found, id: {task_id}")
         return JsonResponse({'error': 'Task not found'}, status=404)
 
     subtask = Subtask.objects.create(task=task, title=subtask_title)
@@ -255,17 +274,22 @@ def delete_task_ajax(request) -> JsonResponse:
     try:
         data = json.loads(request.body)
         task_id = int(data.get('task_id'))
+        logger.info(f"Task ID: {task_id}")
     except (ValueError, KeyError, json.JSONDecodeError):
+        logger.error(f"Invalid or missing task ID")
         return JsonResponse({'error': 'Invalid or missing task ID'},
                             status=400)
 
     try:
         task = Task.objects.get(id=task_id)
         task.delete()
+        logger.info(f"Task deleted: {task}")
         return JsonResponse({'success': True})
     except Task.DoesNotExist:
+        logger.error(f"Task not found, id: {task_id}")
         return JsonResponse({'error': 'Task not found'}, status=404)
     except Exception as e:
+        logger.error(f"Error deleting task: {e}")
         return JsonResponse({'error': str(e)}, status=500)
 
 
@@ -286,7 +310,9 @@ def delete_subtask_ajax(request) -> JsonResponse:
     try:
         data = json.loads(request.body)
         subtask_id = int(data.get('subtask_id'))
+        logger.info(f"Subtask ID: {subtask_id}")
     except (ValueError, KeyError, json.JSONDecodeError):
+        logger.error(f"Invalid or missing subtask ID")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -296,10 +322,13 @@ def delete_subtask_ajax(request) -> JsonResponse:
     try:
         subtask = Subtask.objects.get(id=subtask_id)
         subtask.delete()
+        logger.info(f"Subtask deleted: {subtask}")
         return JsonResponse({'success': True})
     except Subtask.DoesNotExist:
+        logger.error(f"Subtask not found, id: {subtask_id}")
         return JsonResponse({'error': 'Subtask not found'}, status=404)
     except Exception as e:
+        logger.error(f"Error deleting subtask: {e}")
         return JsonResponse({'error': str(e)}, status=500)
 
 
@@ -321,7 +350,9 @@ def edit_subtask_ajax(request) -> JsonResponse:
         data = json.loads(request.body)
         subtask_id = int(data.get('subtask_id'))
         title = data.get('title', '').strip()
+        logger.info(f"Subtask data: {data}")
     except (ValueError, KeyError, json.JSONDecodeError):
+        logger.error(f"Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -333,6 +364,7 @@ def edit_subtask_ajax(request) -> JsonResponse:
         subtask = Subtask.objects.get(id=subtask_id)
         subtask.title = title
         subtask.save()
+        logger.info(f"Subtask updated: {subtask}")
 
         return JsonResponse({
             'id': subtask.id,
@@ -340,8 +372,10 @@ def edit_subtask_ajax(request) -> JsonResponse:
             'is_accomplished': subtask.is_accomplished
         })
     except Subtask.DoesNotExist:
+        logger.error(f"Subtask not found, id: {subtask_id}")
         return JsonResponse({'error': 'Subtask not found'}, status=404)
     except Exception as e:
+        logger.error(f"Error updating subtask: {e}")
         return JsonResponse({'error': str(e)}, status=500)
 
 
@@ -362,7 +396,9 @@ def toggle_subtask_ajax(request) -> JsonResponse:
         data = json.loads(request.body)
         subtask_id = int(data.get('subtask_id'))
         is_completed = data.get('is_completed') == 'true'
+        logger.info(f"Subtask data: {data}")
     except (ValueError, KeyError, json.JSONDecodeError):
+        logger.error(f"Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -373,10 +409,13 @@ def toggle_subtask_ajax(request) -> JsonResponse:
         subtask = Subtask.objects.get(id=subtask_id)
         subtask.is_accomplished = is_completed
         subtask.save()
+        logger.info(f"Subtask updated: {subtask}")
         return JsonResponse({'is_accomplished': subtask.is_accomplished})
     except Subtask.DoesNotExist:
+        logger.error(f"Subtask not found, id: {subtask_id}")
         return JsonResponse({'error': 'Subtask not found'}, status=404)
     except Exception as e:
+        logger.error(f"Error updating subtask: {e}")
         return JsonResponse({'error': str(e)}, status=500)
 
 
@@ -389,7 +428,9 @@ def edit_task_ajax(request) -> JsonResponse:
         title = data.get('title', '').strip()
         remark = data.get('remark', '').strip()
         end_date_str = data.get('end_date')
+        logger.info(f"Task data: {data}")
     except (ValueError, KeyError, json.JSONDecodeError):
+        logger.error(f"Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -399,14 +440,18 @@ def edit_task_ajax(request) -> JsonResponse:
 
     try:
         task = Task.objects.get(id=task_id)
+        logger.info(f"Task found: {task}")
     except Task.DoesNotExist:
+        logger.error(f"Task not found, id: {task_id}")
         return JsonResponse({'error': 'Task not found'}, status=404)
 
     end_date = None
     if end_date_str:
         try:
+            logger.info(f"End date: {end_date_str}")
             end_date = date.fromisoformat(end_date_str)
         except ValueError:
+            logger.error(f"Invalid date format: {end_date_str}")
             return JsonResponse(
                 {'error': 'Invalid date format. Use YYYY-MM-DD.'},
                 status=400)
@@ -445,7 +490,9 @@ def update_task_status(request) -> JsonResponse:
         data = json.loads(request.body)
         task_id = int(data.get('task_id'))
         new_status = data.get('new_status')
+        logger.info(f"Task data: {data}")
     except (ValueError, KeyError, json.JSONDecodeError):
+        logger.error(f"Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -458,16 +505,19 @@ def update_task_status(request) -> JsonResponse:
         task.status = new_status
         task.save()
         send_email_task.delay(
-            subject="Task status updated",
-            message=f"Task '{task.title}' is now '{new_status}'.",
-            recipient_list=["yaroslav-kotov-91@mail.ru"]
+            subject="Изменение статуса задачи",
+            message=f"Задача '{task.title}' стала в статус '{new_status}'.",
+            recipient_list=["yaroslav-kotov-91@mail.ru", task.customer.email]
         )
+        logger.info(f"Task updated: {task}")
         return JsonResponse({
             'status': task.status
         })
     except Task.DoesNotExist:
+        logger.error(f"Task not found, id: {task_id}")
         return JsonResponse({'error': 'Task not found'}, status=404)
     except Exception as e:
+        logger.error(f"Error updating task: {e}")
         return JsonResponse({'error': str(e)}, status=500)
 
 
@@ -488,7 +538,9 @@ def update_subtask_status(request) -> JsonResponse:
         data = json.loads(request.body)
         subtask_id = int(data.get('subtask_id'))
         new_status = data.get('new_status')
+        logger.info(f"Subtask data: {data}")
     except (ValueError, KeyError, json.JSONDecodeError):
+        logger.error(f"Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -500,12 +552,15 @@ def update_subtask_status(request) -> JsonResponse:
         subtask = Subtask.objects.get(id=subtask_id)
         subtask.status = new_status
         subtask.save()
+        logger.info(f"Subtask updated: {subtask}")
         return JsonResponse({
             'status': subtask.status
         })
     except Subtask.DoesNotExist:
+        logger.error(f"Subtask not found, id: {subtask_id}")
         return JsonResponse({'error': 'Subtask not found'}, status=404)
     except Exception as e:
+        logger.error(f"Error updating subtask: {e}")
         return JsonResponse({'error': str(e)}, status=500)
 
 
@@ -536,16 +591,25 @@ def take_task_ajax(request) -> JsonResponse:
     try:
         data = json.loads(request.body)
         task_id = int(data.get('task_id'))
+        logger.info(f"Task ID: {task_id}")
     except (ValueError, KeyError, json.JSONDecodeError):
+        logger.error(f"Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
     try:
         task = Task.objects.get(id=task_id)
         task.take_task(user)
+        send_email_task.delay(
+            subject="Назначение задачи",
+            message=f"Задача '{task.title}' была назначена {user.username}.",
+            recipient_list=["yaroslav-kotov-91@mail.ru", task.customer.email]
+        )
+        logger.info(f"Task taken by {user.username}")
         return JsonResponse({
             'success': True,
             'username': user.username
         })
     except Task.DoesNotExist:
+        logger.error(f"Task not found, id: {task_id}")
         return JsonResponse({'error': 'Task not found'}, status=404)
