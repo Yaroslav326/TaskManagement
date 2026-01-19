@@ -1,0 +1,10 @@
+<div class="card" id="subtask-{{ subtask.id }}">
+    <p>{{ subtask.title }}</p>
+    <button onclick="deleteSubtask({{ subtask.id }})">Delete</button>
+    <label>
+        <input type="checkbox"
+               {% if subtask.is_accomplished %}checked{% endif %}
+               onchange="toggleSubtaskStatus({{ subtask.id }}, this.checked)">
+        Accomplished
+    </label>
+</div>

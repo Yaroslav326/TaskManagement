@@ -1,0 +1,16 @@
+<div class="card" id="card-{{ task.id }}">
+    <strong>{{ task.title }}</strong>
+    <p>{{ task.remark|default:"" }}</p>
+    <p><small>Создано: {{ task.date_start|date:"Y-m-d H:i" }}</small></p>
+    <p><small>Окончание: {% if task.date_end %}{{ task.date_end|date:"Y-m-d H:i" }}{% else %}—{% endif %}</small></p>
+    <p><small>Исполнитель: {% if task.employee %}{{ task.employee.username }}{% else %}Нет{% endif %}</small></p>
+    <button onclick="deleteTask({{ task.id }})">Delete</button>
+    <select onchange="updateTaskStatus({{ task.id }}, this.value)">
+        <option value="todo" {% if task.status == 'todo' %}selected{% endif %}>Todo</option>
+        <option value="in_progress" {% if task.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+        <option value="done" {% if task.status == 'done' %}selected{% endif %}>Done</option>
+    </select>
+    {% if not task.employee %}
+        <button onclick="takeTask({{ task.id }})">Взять задачу</button>
+    {% endif %}
+</div>

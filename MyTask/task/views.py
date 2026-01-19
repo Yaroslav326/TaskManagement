@@ -3,6 +3,7 @@ from django.shortcuts import render, redirect
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.db.models import Case, Value, IntegerField, When, Q
+from django.template.loader import render_to_string
 from .models import Task, Subtask
 from .forms import TaskForm, SubtaskForm
 from rest_framework import authentication
@@ -19,6 +20,26 @@ logger.add("logs_task.log", rotation="500 MB")
 
 
 def get_user_payload(request):
+    """
+        Извлекает и декодирует JWT-токен из заголовка Authorization или
+        куки запроса.
+
+        Пытается получить токен сначала из заголовка 'Authorization'
+        если не найден — из куки 'jwt'. Декодирует токен с использованием
+        SECRET_KEY.
+
+        Args:
+            request (HttpRequest): Объект HTTP-запроса, содержащий
+            заголовки и куки.
+
+        Returns:
+            tuple: Кортеж из двух элементов:
+                - payload (dict or None): Декодированные данные токена,
+                если успешно.
+                - error (JsonResponse or None): Объект ошибки с кодом
+                состояния, если возникла проблема.
+        """
+
     auth_header = authentication.get_authorization_header(request).split()
     if len(auth_header) == 2:
         token = auth_header[1].decode('utf-8')
@@ -43,6 +64,22 @@ def get_user_payload(request):
 
 
 def parse_json_body(request):
+    """
+        Парсит тело HTTP-запроса как JSON.
+
+        Пытается декодировать тело запроса в формате JSON.
+        Логирует содержимое тела при успешной и неуспешной попытке.
+
+        Args:
+            request (HttpRequest): Объект HTTP-запроса с телом в формате JSON.
+
+        Returns:
+            tuple: Кортеж из двух элементов:
+                - data (dict or list or None): Распарсенные JSON-данные,
+                если успешно.
+                - error (JsonResponse or None): Объект ошибки с кодом 400,
+                если тело не является валидным JSON.
+        """
     try:
         logger.info(f"Request body: {request.body}")
         return json.loads(request.body), None
@@ -70,7 +107,7 @@ def company_tasks(request):
     company_id = Department.objects.filter(personnel=user).values_list(
         'company_id', flat=True).first()
     if not company_id:
-        return Task.objects.none()
+        return Task.objects.none(), None
 
     users_in_company = User.objects.filter(
         assigned_departments__company_id=company_id).distinct()
@@ -79,7 +116,7 @@ def company_tasks(request):
         Q(customer__in=users_in_company) | Q(employee__in=users_in_company)
     ).distinct()
 
-    return tasks
+    return tasks, None
 
 
 def task_kanban(request) -> HttpResponse:
@@ -97,7 +134,10 @@ def task_kanban(request) -> HttpResponse:
     Kanban или редирект на неё
     """
 
-    tasks = company_tasks(request)
+    tasks, error = company_tasks(request)
+    if error:
+        return error
+
     if isinstance(tasks, JsonResponse):
         return tasks
 
@@ -134,6 +174,24 @@ def task_kanban(request) -> HttpResponse:
     })
 
 
+def render_task_card(request, task):
+    """
+    Рендерит HTML карточки задачи с использованием шаблона.
+    """
+    html = render_to_string('task_card.html', {'task': task},
+                            request=request)
+    return html.strip()
+
+
+def render_subtask_card(request, subtask):
+    """
+    Рендерит HTML карточки подзадачи с использованием шаблона.
+    """
+    html = render_to_string('subtask_card.html', {'subtask': subtask},
+                            request=request)
+    return html.strip()
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def add_task(request) -> JsonResponse:
@@ -149,14 +207,17 @@ def add_task(request) -> JsonResponse:
     HTML-представлением
     """
 
-    auth_header = authentication.get_authorization_header(request).split()
+    payload, error = get_user_payload(request)
 
-    token = auth_header[1].decode('utf-8')
-    payload = jwt.decode(token, key=settings.SECRET_KEY, algorithms=['HS256'])
+    if error:
+        return error
 
     user = User.objects.get(id=payload['user_id'])
 
-    data = json.loads(request.body)
+    data, error = parse_json_body(request)
+    if error:
+        return error
+
     title = data.get('title', '').strip()
     if not title:
         return JsonResponse({'error': 'Title is required'}, status=400)
@@ -172,22 +233,7 @@ def add_task(request) -> JsonResponse:
             'id': task.id,
             'title': task.title,
             'status': task.status,
-            'html': f"""
-            <div class="card" id="card-{task.id}">
-                <strong>{task.title}</strong>
-                <p>{task.remark or ''}</p>
-                <p><small>Создано: {task.date_start.strftime('%Y-%m-%d %H:%M')}</small></p>
-                <p><small>Окончание: {task.date_end.strftime('%Y-%m-%d %H:%M') if task.date_end else '—'}</small></p>
-                <p><small>Исполнитель: {'Нет'}</small></p>
-                <button onclick="deleteTask({task.id})">Delete</button>
-                <select onchange="updateTaskStatus({task.id}, this.value)">
-                    <option value="todo" selected>Todo</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="done">Done</option>
-                </select>
-                <button onclick="takeTask({task.id})">Взять задачу</button>
-            </div>
-            """
+            'html': render_task_card(request, task)
         })
     except Exception as e:
         logger.error(f"Error creating task: {e}, data: {data},"
@@ -211,7 +257,10 @@ def add_subtask(request) -> JsonResponse:
     """
 
     try:
-        data = json.loads(request.body)
+        data, error = parse_json_body(request)
+        if error:
+            return error
+
         task_id = int(data.get('task_id'))
         subtask_title = data.get('subtask_title')
         logger.info(f"Subtask data: {data}")
@@ -244,16 +293,7 @@ def add_subtask(request) -> JsonResponse:
         'id': subtask.id,
         'title': subtask.title,
         'is_accomplished': subtask.is_accomplished,
-        'html': f"""
-        <div class="card" id="subtask-{subtask.id}">
-            <p>{subtask.title}</p>
-            <button onclick="deleteSubtask({subtask.id})">Delete</button>
-            <label>
-                <input type="checkbox" {'checked' if subtask.is_accomplished else ''} onchange="toggleSubtaskStatus({subtask.id}, this.checked)">
-                Accomplished
-            </label>
-        </div>
-        """
+        'html': render_subtask_card(request, subtask)
     })
 
 
@@ -272,7 +312,9 @@ def delete_task_ajax(request) -> JsonResponse:
     """
 
     try:
-        data = json.loads(request.body)
+        data, error = parse_json_body(request)
+        if error:
+            return error
         task_id = int(data.get('task_id'))
         logger.info(f"Task ID: {task_id}")
     except (ValueError, KeyError, json.JSONDecodeError):
@@ -308,7 +350,9 @@ def delete_subtask_ajax(request) -> JsonResponse:
     """
 
     try:
-        data = json.loads(request.body)
+        data, error = parse_json_body(request)
+        if error:
+            return error
         subtask_id = int(data.get('subtask_id'))
         logger.info(f"Subtask ID: {subtask_id}")
     except (ValueError, KeyError, json.JSONDecodeError):
@@ -347,7 +391,9 @@ def edit_subtask_ajax(request) -> JsonResponse:
     """
 
     try:
-        data = json.loads(request.body)
+        data, error = parse_json_body(request)
+        if error:
+            return error
         subtask_id = int(data.get('subtask_id'))
         title = data.get('title', '').strip()
         logger.info(f"Subtask data: {data}")
@@ -393,7 +439,9 @@ def toggle_subtask_ajax(request) -> JsonResponse:
     Returns: JsonResponse - JSON-объект с обновленным статусом подзадачи
     """
     try:
-        data = json.loads(request.body)
+        data, error = parse_json_body(request)
+        if error:
+            return error
         subtask_id = int(data.get('subtask_id'))
         is_completed = data.get('is_completed') == 'true'
         logger.info(f"Subtask data: {data}")
@@ -423,7 +471,9 @@ def toggle_subtask_ajax(request) -> JsonResponse:
 @require_http_methods(["POST"])
 def edit_task_ajax(request) -> JsonResponse:
     try:
-        data = json.loads(request.body)
+        data, error = parse_json_body(request)
+        if error:
+            return error
         task_id = int(data.get('task_id'))
         title = data.get('title', '').strip()
         remark = data.get('remark', '').strip()
@@ -487,7 +537,9 @@ def update_task_status(request) -> JsonResponse:
     """
 
     try:
-        data = json.loads(request.body)
+        data, error = parse_json_body(request)
+        if error:
+            return error
         task_id = int(data.get('task_id'))
         new_status = data.get('new_status')
         logger.info(f"Task data: {data}")
@@ -507,7 +559,7 @@ def update_task_status(request) -> JsonResponse:
         send_email_task.delay(
             subject="Изменение статуса задачи",
             message=f"Задача '{task.title}' стала в статус '{new_status}'.",
-            recipient_list=["yaroslav-kotov-91@mail.ru", task.customer.email]
+            recipient_list=[task.customer.email]
         )
         logger.info(f"Task updated: {task}")
         return JsonResponse({
@@ -535,7 +587,9 @@ def update_subtask_status(request) -> JsonResponse:
     Returns: JsonResponse - JSON-объект с новым статусом подзадачи
     """
     try:
-        data = json.loads(request.body)
+        data, error = parse_json_body(request)
+        if error:
+            return error
         subtask_id = int(data.get('subtask_id'))
         new_status = data.get('new_status')
         logger.info(f"Subtask data: {data}")
@@ -580,16 +634,16 @@ def take_task_ajax(request) -> JsonResponse:
     пользователя
     """
 
-    request.user = None
-    auth_header = authentication.get_authorization_header(request).split()
-
-    token = auth_header[1].decode('utf-8')
-    payload = jwt.decode(token, key=settings.SECRET_KEY, algorithms=['HS256'])
+    payload, error = get_user_payload(request)
+    if error:
+        return error
 
     user = User.objects.get(id=payload['user_id'])
 
     try:
-        data = json.loads(request.body)
+        data, error = parse_json_body(request)
+        if error:
+            return error
         task_id = int(data.get('task_id'))
         logger.info(f"Task ID: {task_id}")
     except (ValueError, KeyError, json.JSONDecodeError):
@@ -603,7 +657,7 @@ def take_task_ajax(request) -> JsonResponse:
         send_email_task.delay(
             subject="Назначение задачи",
             message=f"Задача '{task.title}' была назначена {user.username}.",
-            recipient_list=["yaroslav-kotov-91@mail.ru", task.customer.email]
+            recipient_list=[task.customer.email]
         )
         logger.info(f"Task taken by {user.username}")
         return JsonResponse({
