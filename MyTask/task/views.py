@@ -1,5 +1,6 @@
-from django.http import JsonResponse, HttpResponse
-from django.shortcuts import render, redirect
+from typing import Dict, Any, Optional, Tuple, List
+from django.http import JsonResponse, HttpResponse, HttpRequest
+from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.db.models import Case, Value, IntegerField, When, Q
@@ -19,27 +20,19 @@ import json
 logger.add("logs_task.log", rotation="500 MB")
 
 
-def get_user_payload(request):
+def get_user_payload(request: HttpRequest) -> (
+        Tuple)[Optional[Dict[str, Any]], Optional[JsonResponse]]:
     """
-        Извлекает и декодирует JWT-токен из заголовка Authorization или
-        куки запроса.
+    Извлекает и декодирует JWT-токен из заголовка Authorization или
+    куки запроса.
 
-        Пытается получить токен сначала из заголовка 'Authorization'
-        если не найден — из куки 'jwt'. Декодирует токен с использованием
-        SECRET_KEY.
+    Args:
+        request (HttpRequest): Объект HTTP-запроса, содержащий
+        заголовки и куки.
 
-        Args:
-            request (HttpRequest): Объект HTTP-запроса, содержащий
-            заголовки и куки.
-
-        Returns:
-            tuple: Кортеж из двух элементов:
-                - payload (dict or None): Декодированные данные токена,
-                если успешно.
-                - error (JsonResponse or None): Объект ошибки с кодом
-                состояния, если возникла проблема.
-        """
-
+    Returns:
+        tuple: (payload: dict or None, error: JsonResponse or None)
+    """
     auth_header = authentication.get_authorization_header(request).split()
     if len(auth_header) == 2:
         token = auth_header[1].decode('utf-8')
@@ -47,8 +40,7 @@ def get_user_payload(request):
         token = request.COOKIES.get('jwt')
         if not token:
             return None, JsonResponse(
-                {'error': 'Authorization header or cookie missing'},
-                status=401
+                {'error': 'Authorization header or cookie missing'}, status=401
             )
 
     try:
@@ -63,54 +55,52 @@ def get_user_payload(request):
         return None, JsonResponse({'error': 'Invalid token'}, status=401)
 
 
-def parse_json_body(request):
+def parse_json_body(request: HttpRequest) -> (
+        Tuple)[Dict[str, Any] | List[Any] | None, Optional[JsonResponse]]:
     """
-        Парсит тело HTTP-запроса как JSON.
+    Парсит тело HTTP-запроса как JSON.
 
-        Пытается декодировать тело запроса в формате JSON.
-        Логирует содержимое тела при успешной и неуспешной попытке.
+    Args:
+        request (HttpRequest): Объект HTTP-запроса с телом в формате JSON.
 
-        Args:
-            request (HttpRequest): Объект HTTP-запроса с телом в формате JSON.
-
-        Returns:
-            tuple: Кортеж из двух элементов:
-                - data (dict or list or None): Распарсенные JSON-данные,
-                если успешно.
-                - error (JsonResponse or None): Объект ошибки с кодом 400,
-                если тело не является валидным JSON.
-        """
+    Returns:
+        tuple: (data: dict/list or None, error: JsonResponse or None)
+    """
     try:
         logger.info(f"Request body: {request.body}")
-        return json.loads(request.body), None
+        data = json.loads(request.body)
+        return data, None
     except json.JSONDecodeError:
         logger.error("Invalid JSON")
         return {}, JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
-def company_tasks(request):
+def company_tasks(request: HttpRequest) -> Tuple[Any, Optional[JsonResponse]]:
     """
     Возвращает QuerySet задач, связанных с пользователями из компании текущего
     пользователя.
+
+    Returns:
+        tuple: (tasks: QuerySet or empty, error: JsonResponse or None)
     """
     payload, error = get_user_payload(request)
     if error:
-        return error
+        return Task.objects.none(), error
 
     try:
         user = User.objects.get(id=payload['user_id'])
         logger.info(f"User: {user}")
     except User.DoesNotExist:
-        logger.error("User not found, id: {payload['user_id']}")
-        return JsonResponse({'error': 'User not found'}, status=404)
+        logger.error(f"User not found, id: {payload['user_id']}")
+        return JsonResponse({'error': 'User not found'}, status=404), None
 
-    company_id = Department.objects.filter(personnel=user).values_list(
-        'company_id', flat=True).first()
+    company_id = (Department.objects.filter(personnel=user).values_list
+                  ('company_id', flat=True).first())
     if not company_id:
         return Task.objects.none(), None
 
-    users_in_company = User.objects.filter(
-        assigned_departments__company_id=company_id).distinct()
+    users_in_company = (User.objects.filter
+                        (assigned_departments__company_id=company_id).distinct())
 
     tasks = Task.objects.filter(
         Q(customer__in=users_in_company) | Q(employee__in=users_in_company)
@@ -119,27 +109,16 @@ def company_tasks(request):
     return tasks, None
 
 
-def task_kanban(request) -> HttpResponse:
+def task_kanban(request: HttpRequest) -> HttpResponse:
     """
-    Функция отображения и сортировки доски Kanban с задачами.
+    Отображение доски Kanban с задачами.
 
-    Обрабатывает запросы GET и POST для управления задачами. При GET-запросе
-    возвращает страницу с доской Kanban, сортируя задачи по статусам.
-    При POST-запросе обрабатывает сортировку
-
-    Args: request: HttpRequest - объект HTTP-запроса,
-    содержащий информацию о методе запроса и данных формы
-
-    Returns: HttpResponse - объект HTTP-ответа, содержащий HTML-страницу доски
-    Kanban или редирект на неё
+    Returns:
+        HttpResponse: HTML-страница с задачами.
     """
-
     tasks, error = company_tasks(request)
     if error:
         return error
-
-    if isinstance(tasks, JsonResponse):
-        return tasks
 
     status_filter = request.GET.get('status')
     if status_filter and status_filter in dict(Task.STATUS_CHOICES):
@@ -174,45 +153,41 @@ def task_kanban(request) -> HttpResponse:
     })
 
 
-def render_task_card(request, task):
+def render_task_card(request: HttpRequest, task: Task) -> str:
     """
-    Рендерит HTML карточки задачи с использованием шаблона.
+    Рендерит HTML карточки задачи.
+
+    Returns:
+        str: HTML-строка карточки задачи.
     """
-    html = render_to_string('task_card.html', {'task': task},
-                            request=request)
+    html = render_to_string('task_card.html',
+                            {'task': task}, request=request)
     return html.strip()
 
 
-def render_subtask_card(request, subtask):
+def render_subtask_card(request: HttpRequest, subtask: Subtask) -> str:
     """
-    Рендерит HTML карточки подзадачи с использованием шаблона.
+    Рендерит HTML карточки подзадачи.
+
+    Returns:
+        str: HTML-строка карточки подзадачи.
     """
-    html = render_to_string('subtask_card.html', {'subtask': subtask},
-                            request=request)
+    html = render_to_string('subtask_card.html',
+                            {'subtask': subtask}, request=request)
     return html.strip()
 
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def add_task(request) -> JsonResponse:
-    """
-    Функция добавления новой задачи.
-
-    Обрабатывает AJAX-запросы на создание новой задачи. Получает данные из
-    JSON-тела запроса, создает новую задачу и возвращает её HTML-представление.
-
-    Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
-
-    Returns: JsonResponse - JSON-объект с данными новой задачи и её
-    HTML-представлением
-    """
-
+def add_task(request: HttpRequest) -> JsonResponse:
     payload, error = get_user_payload(request)
-
     if error:
         return error
 
-    user = User.objects.get(id=payload['user_id'])
+    try:
+        user = User.objects.get(id=payload['user_id'])
+    except User.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
 
     data, error = parse_json_body(request)
     if error:
@@ -223,11 +198,7 @@ def add_task(request) -> JsonResponse:
         return JsonResponse({'error': 'Title is required'}, status=400)
 
     try:
-        task = Task.objects.create(
-            customer=user,
-            title=title,
-            status='todo'
-        )
+        task = Task.objects.create(customer=user, title=title, status='todo')
         logger.info(f"Task created: {task}")
         return JsonResponse({
             'id': task.id,
@@ -236,49 +207,29 @@ def add_task(request) -> JsonResponse:
             'html': render_task_card(request, task)
         })
     except Exception as e:
-        logger.error(f"Error creating task: {e}, data: {data},"
-                     f" payload: {payload}")
+        logger.error(f"Error creating task: {e}, data: {data}, "
+                     f"payload: {payload}")
         return JsonResponse({'error': str(e)}, status=500)
 
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def add_subtask(request) -> JsonResponse:
-    """
-    Функция добавления подзадачи к существующей задаче.
-
-    Обрабатывает AJAX-запросы на создание новой подзадачи.
-    Получает ID задачи и заголовок подзадачи из JSON-тела запроса.
-
-    Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
-
-    Returns: JsonResponse - JSON-объект с данными новой подзадачи и её
-    HTML-представлением
-    """
+def add_subtask(request: HttpRequest) -> JsonResponse:
+    data, error = parse_json_body(request)
+    if error:
+        return error
 
     try:
-        data, error = parse_json_body(request)
-        if error:
-            return error
-
         task_id = int(data.get('task_id'))
-        subtask_title = data.get('subtask_title')
+        subtask_title = data.get('subtask_title', '').strip()
         logger.info(f"Subtask data: {data}")
-    except (ValueError, KeyError, json.JSONDecodeError):
+    except (ValueError, TypeError, KeyError):
         logger.error("Invalid or missing task ID")
         return JsonResponse({'error': 'Invalid or missing task ID'},
                             status=400)
 
     if not task_id or not subtask_title:
         return JsonResponse({'error': 'Missing required data'},
-                            status=400)
-
-    try:
-        task_id = int(task_id)
-        logger.info(f"Task ID: {task_id}")
-    except ValueError:
-        logger.error("Invalid task ID format")
-        return JsonResponse({'error': 'Invalid task ID format'},
                             status=400)
 
     try:
@@ -299,26 +250,16 @@ def add_subtask(request) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def delete_task_ajax(request) -> JsonResponse:
-    """
-    Функция удаления задачи.
-
-    Обрабатывает AJAX-запросы на удаление задачи. Получает ID задачи из
-    JSON-тела запроса.
-
-    Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
-
-    Returns: JsonResponse - JSON-объект с флагом успеха операции
-    """
+def delete_task_ajax(request: HttpRequest) -> JsonResponse:
+    data, error = parse_json_body(request)
+    if error:
+        return error
 
     try:
-        data, error = parse_json_body(request)
-        if error:
-            return error
         task_id = int(data.get('task_id'))
         logger.info(f"Task ID: {task_id}")
-    except (ValueError, KeyError, json.JSONDecodeError):
-        logger.error(f"Invalid or missing task ID")
+    except (ValueError, TypeError, KeyError):
+        logger.error("Invalid or missing task ID")
         return JsonResponse({'error': 'Invalid or missing task ID'},
                             status=400)
 
@@ -337,26 +278,16 @@ def delete_task_ajax(request) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def delete_subtask_ajax(request) -> JsonResponse:
-    """
-    Функция удаления подзадачи.
-
-    Обрабатывает AJAX-запросы на удаление подзадачи. Получает ID подзадачи из
-    JSON-тела запроса.
-
-    Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
-
-    Returns: JsonResponse - JSON-объект с флагом успеха операции
-    """
+def delete_subtask_ajax(request: HttpRequest) -> JsonResponse:
+    data, error = parse_json_body(request)
+    if error:
+        return error
 
     try:
-        data, error = parse_json_body(request)
-        if error:
-            return error
         subtask_id = int(data.get('subtask_id'))
         logger.info(f"Subtask ID: {subtask_id}")
-    except (ValueError, KeyError, json.JSONDecodeError):
-        logger.error(f"Invalid or missing subtask ID")
+    except (ValueError, TypeError, KeyError):
+        logger.error("Invalid or missing subtask ID")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -378,27 +309,16 @@ def delete_subtask_ajax(request) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def edit_subtask_ajax(request) -> JsonResponse:
-    """
-    Функция редактирования подзадачи.
-
-    Обрабатывает AJAX-запросы на изменение заголовка подзадачи. Получает ID
-    подзадачи и новый заголовок из JSON-тела запроса.
-
-    Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
-
-    Returns: JsonResponse - JSON-объект с обновленными данными подзадачи
-    """
+def edit_subtask_ajax(request: HttpRequest) -> JsonResponse:
+    data, error = parse_json_body(request)
+    if error:
+        return error
 
     try:
-        data, error = parse_json_body(request)
-        if error:
-            return error
         subtask_id = int(data.get('subtask_id'))
         title = data.get('title', '').strip()
-        logger.info(f"Subtask data: {data}")
-    except (ValueError, KeyError, json.JSONDecodeError):
-        logger.error(f"Invalid or missing data")
+    except (ValueError, TypeError, KeyError):
+        logger.error("Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -411,7 +331,6 @@ def edit_subtask_ajax(request) -> JsonResponse:
         subtask.title = title
         subtask.save()
         logger.info(f"Subtask updated: {subtask}")
-
         return JsonResponse({
             'id': subtask.id,
             'title': subtask.title,
@@ -427,26 +346,16 @@ def edit_subtask_ajax(request) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def toggle_subtask_ajax(request) -> JsonResponse:
-    """
-    Функция изменения статуса завершения подзадачи.
+def toggle_subtask_ajax(request: HttpRequest) -> JsonResponse:
+    data, error = parse_json_body(request)
+    if error:
+        return error
 
-    Обрабатывает AJAX-запросы на установку/сброс флага завершения подзадачи.
-    Получает ID подзадачи и текущий статус из JSON-тела запроса.
-
-    Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
-
-    Returns: JsonResponse - JSON-объект с обновленным статусом подзадачи
-    """
     try:
-        data, error = parse_json_body(request)
-        if error:
-            return error
         subtask_id = int(data.get('subtask_id'))
         is_completed = data.get('is_completed') == 'true'
-        logger.info(f"Subtask data: {data}")
-    except (ValueError, KeyError, json.JSONDecodeError):
-        logger.error(f"Invalid or missing data")
+    except (ValueError, TypeError, KeyError):
+        logger.error("Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -469,18 +378,18 @@ def toggle_subtask_ajax(request) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def edit_task_ajax(request) -> JsonResponse:
+def edit_task_ajax(request: HttpRequest) -> JsonResponse:
+    data, error = parse_json_body(request)
+    if error:
+        return error
+
     try:
-        data, error = parse_json_body(request)
-        if error:
-            return error
         task_id = int(data.get('task_id'))
         title = data.get('title', '').strip()
         remark = data.get('remark', '').strip()
         end_date_str = data.get('end_date')
-        logger.info(f"Task data: {data}")
-    except (ValueError, KeyError, json.JSONDecodeError):
-        logger.error(f"Invalid or missing data")
+    except (ValueError, TypeError, KeyError):
+        logger.error("Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -490,7 +399,6 @@ def edit_task_ajax(request) -> JsonResponse:
 
     try:
         task = Task.objects.get(id=task_id)
-        logger.info(f"Task found: {task}")
     except Task.DoesNotExist:
         logger.error(f"Task not found, id: {task_id}")
         return JsonResponse({'error': 'Task not found'}, status=404)
@@ -498,7 +406,6 @@ def edit_task_ajax(request) -> JsonResponse:
     end_date = None
     if end_date_str:
         try:
-            logger.info(f"End date: {end_date_str}")
             end_date = date.fromisoformat(end_date_str)
         except ValueError:
             logger.error(f"Invalid date format: {end_date_str}")
@@ -517,34 +424,23 @@ def edit_task_ajax(request) -> JsonResponse:
         'remark': task.remark,
         'status': task.status,
         'date_start': task.date_start.strftime('%Y-%m-%d'),
-        'date_end': task.date_end.strftime(
-            '%Y-%m-%d') if task.date_end else None,
+        'date_end': task.date_end.strftime('%Y-%m-%d')
+        if task.date_end else None,
     })
 
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def update_task_status(request) -> JsonResponse:
-    """
-    Функция обновления статуса задачи.
-
-    Обрабатывает AJAX-запросы на изменение статуса задачи.
-    Получает ID задачи и новый статус из JSON-тела запроса.
-
-    Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
-
-    Returns: JsonResponse - JSON-объект с новым статусом задачи
-    """
+def update_task_status(request: HttpRequest) -> JsonResponse:
+    data, error = parse_json_body(request)
+    if error:
+        return error
 
     try:
-        data, error = parse_json_body(request)
-        if error:
-            return error
         task_id = int(data.get('task_id'))
         new_status = data.get('new_status')
-        logger.info(f"Task data: {data}")
-    except (ValueError, KeyError, json.JSONDecodeError):
-        logger.error(f"Invalid or missing data")
+    except (ValueError, TypeError, KeyError):
+        logger.error("Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -562,9 +458,7 @@ def update_task_status(request) -> JsonResponse:
             recipient_list=[task.customer.email]
         )
         logger.info(f"Task updated: {task}")
-        return JsonResponse({
-            'status': task.status
-        })
+        return JsonResponse({'status': task.status})
     except Task.DoesNotExist:
         logger.error(f"Task not found, id: {task_id}")
         return JsonResponse({'error': 'Task not found'}, status=404)
@@ -575,26 +469,16 @@ def update_task_status(request) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def update_subtask_status(request) -> JsonResponse:
-    """
-    Функция обновления статуса подзадачи.
+def update_subtask_status(request: HttpRequest) -> JsonResponse:
+    data, error = parse_json_body(request)
+    if error:
+        return error
 
-    Обрабатывает AJAX-запросы на изменение статуса подзадачи. Получает
-    ID подзадачи и новый статус из JSON-тела запроса.
-
-    Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
-
-    Returns: JsonResponse - JSON-объект с новым статусом подзадачи
-    """
     try:
-        data, error = parse_json_body(request)
-        if error:
-            return error
         subtask_id = int(data.get('subtask_id'))
         new_status = data.get('new_status')
-        logger.info(f"Subtask data: {data}")
-    except (ValueError, KeyError, json.JSONDecodeError):
-        logger.error(f"Invalid or missing data")
+    except (ValueError, TypeError, KeyError):
+        logger.error("Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -607,9 +491,7 @@ def update_subtask_status(request) -> JsonResponse:
         subtask.status = new_status
         subtask.save()
         logger.info(f"Subtask updated: {subtask}")
-        return JsonResponse({
-            'status': subtask.status
-        })
+        return JsonResponse({'status': subtask.status})
     except Subtask.DoesNotExist:
         logger.error(f"Subtask not found, id: {subtask_id}")
         return JsonResponse({'error': 'Subtask not found'}, status=404)
@@ -620,34 +502,24 @@ def update_subtask_status(request) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def take_task_ajax(request) -> JsonResponse:
-    """
-    Функция назначения задачи пользователю.
-
-    Обрабатывает AJAX-запросы на привязку задачи к пользователю.
-    Извлекает токен аутентификации из заголовка запроса, декодирует его,
-    получает пользователя и привязывает задачу к нему.
-
-    Args: request: HttpRequest - объект HTTP-запроса, содержащий JSON-данные
-
-    Returns: JsonResponse - JSON-объект с флагом успеха операции и именем
-    пользователя
-    """
-
+def take_task_ajax(request: HttpRequest) -> JsonResponse:
     payload, error = get_user_payload(request)
     if error:
         return error
 
-    user = User.objects.get(id=payload['user_id'])
+    try:
+        user = User.objects.get(id=payload['user_id'])
+    except User.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
+
+    data, error = parse_json_body(request)
+    if error:
+        return error
 
     try:
-        data, error = parse_json_body(request)
-        if error:
-            return error
         task_id = int(data.get('task_id'))
-        logger.info(f"Task ID: {task_id}")
-    except (ValueError, KeyError, json.JSONDecodeError):
-        logger.error(f"Invalid or missing data")
+    except (ValueError, TypeError, KeyError):
+        logger.error("Invalid or missing data")
         return JsonResponse({'error': 'Invalid or missing data'},
                             status=400)
 
@@ -660,10 +532,7 @@ def take_task_ajax(request) -> JsonResponse:
             recipient_list=[task.customer.email]
         )
         logger.info(f"Task taken by {user.username}")
-        return JsonResponse({
-            'success': True,
-            'username': user.username
-        })
+        return JsonResponse({'success': True, 'username': user.username})
     except Task.DoesNotExist:
         logger.error(f"Task not found, id: {task_id}")
         return JsonResponse({'error': 'Task not found'}, status=404)
